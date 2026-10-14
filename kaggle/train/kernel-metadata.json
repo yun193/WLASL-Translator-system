@@ -1,0 +1,14 @@
+{
+  "id": "yun193/wlasl-train",
+  "title": "wlasl-train",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": ["yun193/wlasl-code"],
+  "competition_sources": [],
+  "kernel_sources": ["yun193/wlasl-preprocess"]
+}
