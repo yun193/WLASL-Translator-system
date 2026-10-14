@@ -1,0 +1,13 @@
+{
+  "id": "yun193/wlasl-preprocess",
+  "title": "wlasl-preprocess",
+  "code_file": "preprocess.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["yun193/wlasl-code", "risangbaskoro/wlasl-processed"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
