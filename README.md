@@ -23,6 +23,25 @@
 | 前端風格 | 沿用 `side-project_VC/tools`：React 18 + Vite + Tailwind 3 + lucide-react | |
 | 後端 | 沿用 `tools`：FastAPI + uv，只綁 `127.0.0.1`，`start.ps1` 一鍵啟動 | |
 
+## 資料現況（2026-10-14 實測）
+
+Kaggle `wlasl-processed` 只有 11980 支影片，WLASL100 的 2038 支中只存在 **1013 支**（缺的剛好是 `missing.txt` 列的那些）：
+
+| split | 影片數 | 涵蓋類別 | 每類支數 |
+| --- | --- | --- | --- |
+| train | 748 | 100 | 4–12 |
+| val | 165 | 89 | 1–4 |
+| test | 100 | 72 | 1–3 |
+
+test 只有 100 支，top-1 的 95% 信賴區間約 ±10 個百分點；本機驗證報告須一併標註，不能只看單一數字。
+
+## 關鍵點擷取（2026-10-14 實測）
+
+- mediapipe 鎖定 `1.1.0`：舊版 `mp.solutions` 已移除，只能用 Tasks API。
+- 採用 `HolisticLandmarker`：本機 CPU 約 95 ms/幀；Pose + Hand 分開跑反而約 105–135 ms，而且分不出左右手。
+- 每幀 55 點 × (x, y, z)：上半身姿勢 13 點 + 左手 21 + 右手 21；x 乘上寬高比，缺點填 NaN。
+- `.npy` 存原始座標，正規化（肩膀中點為原點、肩寬為單位）在讀取時做。
+
 ## 檔案結構
 
 ```
