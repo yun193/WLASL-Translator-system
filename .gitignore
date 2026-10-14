@@ -1,0 +1,35 @@
+# 資料集、關鍵點與暫存
+data/
+*.mp4
+*.npy
+*.npz
+
+# 模型權重（從 Kaggle 下載）
+models/
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# Kaggle 憑證
+kaggle.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# 本機設定與機密
+.env
+*.local
+.claude/settings.local.json
+
+# 即時紀錄檔
+logs/

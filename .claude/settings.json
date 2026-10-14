@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node \"D:/code/side-project_VC/WLASL-Translator-system/.claude/statusline.js\""
+  }
+}
