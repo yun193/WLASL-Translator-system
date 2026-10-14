@@ -7,6 +7,8 @@ param(
     [switch]$NoPush
 )
 $ErrorActionPreference = "Stop"
+# kaggle CLI 寫 log 檔時用系統編碼（cp950），遇到 pip 進度條的 ━ 會中斷下載
+$env:PYTHONUTF8 = "1"
 $Root = Split-Path $PSScriptRoot -Parent
 $Dir = Join-Path $Root "kaggle\$Name"
 $Meta = Get-Content (Join-Path $Dir "kernel-metadata.json") -Raw | ConvertFrom-Json
@@ -28,6 +30,7 @@ while ($true) {
 }
 
 New-Item -ItemType Directory -Force $Out | Out-Null
-kaggle kernels output $Id -p $Out -o --file-pattern $FilePattern
+# CLI 會翻遍所有分頁；預設每頁 20 個，上千個 .npy 時很慢
+kaggle kernels output $Id -p $Out -o -q --page-size 200 --file-pattern $FilePattern
 if ($status -notmatch "COMPLETE") { throw "kernel 未成功完成：$status（log 已下載到 $Out）" }
 Write-Host "完成，產出在 $Out"
