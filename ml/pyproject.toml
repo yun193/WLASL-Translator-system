@@ -10,6 +10,14 @@ dependencies = [
     "mediapipe==1.1.0",
 ]
 
+[project.optional-dependencies]
+# 本機驗證與推論：CUDA / cuDNN 由 pip wheel 提供，不必裝系統 CUDA Toolkit
+eval = [
+    # 1.27 起 [cuda] 改拉 CUDA 13 套件，nvidia-cublas 13 沒有 Windows wheel；1.26 是最後一版 cu12
+    "onnxruntime-gpu[cuda,cudnn]==1.26.0; python_version >= '3.11'",
+    "matplotlib>=3.8",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
