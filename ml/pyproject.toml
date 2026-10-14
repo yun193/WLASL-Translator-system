@@ -1,0 +1,26 @@
+[project]
+name = "wlasl"
+version = "0.1.0"
+description = "WLASL 手語辨識共用套件：關鍵點擷取、資料集、模型、訓練與匯出"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    # Kaggle 與本機必須同一版，否則關鍵點分布會偏移
+    "mediapipe==1.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["wlasl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
