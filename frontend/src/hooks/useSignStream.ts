@@ -121,6 +121,8 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         cleanup();
         setError('');
         setFrame(null);
+        // 每次換來源都是新的一段辨識，字幕不接續上一段（否則多次播放同一支單字影片會看起來像句子）
+        setSigns([]);
         setStatus('starting');
         setSourceKind(src.kind);
         kindRef.current = src.kind;
