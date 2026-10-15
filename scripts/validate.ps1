@@ -1,9 +1,10 @@
 ﻿# 本機一鍵驗證：（可選）從 Kaggle 拉最新模型 → wlasl.evaluate → models/<Run>/report/
 # 例：.\scripts\validate.ps1                 驗證 models/ 底下最新的一版
-#     .\scripts\validate.ps1 -Pull -Run v2   先拉 Kaggle 最新產出成 models/v2 再驗證
+#     .\scripts\validate.ps1 -Pull -Run v2 -Config w2000   先拉 Kaggle 產出（指定設定）成 models/v2 再驗證
 param(
     [string]$Run,
     [switch]$Pull,
+    [string]$Config,
     [switch]$NoLatency
 )
 $ErrorActionPreference = "Stop"
@@ -12,7 +13,7 @@ $Root = Split-Path $PSScriptRoot -Parent
 
 if ($Pull) {
     if (-not $Run) { $Run = Get-Date -Format "yyyyMMdd-HHmm" }
-    & (Join-Path $PSScriptRoot "kaggle_pull_model.ps1") -Run $Run
+    & (Join-Path $PSScriptRoot "kaggle_pull_model.ps1") -Run $Run -Config $Config
 }
 if (-not $Run) {
     $latest = Get-ChildItem (Join-Path $Root "models") -Directory |
@@ -23,8 +24,10 @@ if (-not $Run) {
 }
 
 $py = Join-Path $Root "ml\.venv\Scripts\python.exe"
-$evalArgs = @("-m", "wlasl.evaluate", "--model", (Join-Path $Root "models\$Run"),
-          "--data", (Join-Path $Root "data\kaggle_out\preprocess"))
+# 新版產出自帶 testdata/（整支影片關鍵點）；舊版模型用 data/kaggle_out/preprocess
+$data = Join-Path $Root "models\$Run\testdata"
+if (-not (Test-Path $data)) { $data = Join-Path $Root "data\kaggle_out\preprocess" }
+$evalArgs = @("-m", "wlasl.evaluate", "--model", (Join-Path $Root "models\$Run"), "--data", $data)
 if ($NoLatency) { $evalArgs += "--no-latency" }
 & $py @evalArgs
 if ($LASTEXITCODE -ne 0) { throw "驗證失敗" }

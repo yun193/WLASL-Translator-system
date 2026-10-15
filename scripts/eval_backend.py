@@ -157,7 +157,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8766")
     ap.add_argument("--videos", type=Path, default=ROOT / "data" / "test_videos")
-    ap.add_argument("--index", type=Path, default=ROOT / "data" / "kaggle_out" / "preprocess" / "index.json")
+    ap.add_argument("--index", type=Path, help="含人工標註起訖的 index.json；預設 models/<run>/testdata，舊模型用 data/kaggle_out/preprocess")
     ap.add_argument("--no-local", action="store_true", help="略過本機擷取（不算 label 那一關）")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--stream-fps", type=float, nargs="*", default=[],
@@ -177,6 +177,10 @@ def main():
         sys.exit(f"後端的模型 {health['model']} 和 {model_dir} 的類別不一致")
     labels = clf.labels
 
+    if args.index is None:
+        args.index = model_dir / "testdata" / "index.json"
+        if not args.index.is_file():
+            args.index = ROOT / "data" / "kaggle_out" / "preprocess" / "index.json"
     ref = np.load(model_dir / "reference.npz")
     ref_pred = {str(v): labels[int(l.argmax())] for v, l in zip(ref["video_ids"], ref["logits"])}
     index = {r["video_id"]: r for r in json.loads(args.index.read_text(encoding="utf-8"))}

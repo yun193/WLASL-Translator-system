@@ -1,27 +1,24 @@
-﻿# 從 Kaggle 拉訓練產出到 models/<Run>/，並拉 test split 的原始關鍵點（本機驗證前處理一致性用）
-# 例：.\scripts\kaggle_pull_model.ps1 -Run 20261014-v1
+﻿# 從 Kaggle 拉訓練產出到 models/<Run>/，連同 test 資料（testdata/：前 100 類 test 的整支影片關鍵點與索引）
+# 例：.\scripts\kaggle_pull_model.ps1 -Run 20261016-w2000 -Config w2000
+#     -Config 對應 kaggle/train/train.py 的 CONFIGS 名稱；舊版單一設定的產出不加 -Config
 param(
-    [string]$Run = (Get-Date -Format "yyyyMMdd-HHmm")
+    [string]$Run = (Get-Date -Format "yyyyMMdd-HHmm"),
+    [string]$Config
 )
 $ErrorActionPreference = "Stop"
 $env:PYTHONUTF8 = "1"
 $Root = Split-Path $PSScriptRoot -Parent
 $ModelDir = Join-Path $Root "models\$Run"
-$Pre = Join-Path $Root "data\kaggle_out\preprocess"
+New-Item -ItemType Directory -Force $ModelDir | Out-Null
 
-New-Item -ItemType Directory -Force $ModelDir, $Pre | Out-Null
-kaggle kernels output yun193/wlasl-train -p $ModelDir -o -q --page-size 200 `
-    --file-pattern "^(model\.onnx|labels\.json|reference\.npz|metrics\.json|history\.json)$"
+$files = "(model\.onnx|labels\.json|reference\.npz|metrics\.json|history\.json|train\.log)"
+$prefix = if ($Config) { [regex]::Escape($Config) + "/" } else { "" }
+kaggle kernels output yun193/wlasl-train -p $ModelDir -o -q --page-size 200 --file-pattern "^(${prefix}${files}|testdata/.*)$"
 if ($LASTEXITCODE -ne 0) { throw "下載訓練產出失敗" }
-
-if (-not (Test-Path (Join-Path $Pre "index.json"))) {
-    kaggle kernels output yun193/wlasl-preprocess -p $Pre -o -q --page-size 200 --file-pattern "^(index|labels)\.json$"
+if ($Config) {
+    Get-ChildItem (Join-Path $ModelDir $Config) | Move-Item -Destination $ModelDir -Force
+    Remove-Item (Join-Path $ModelDir $Config) -Recurse -Force -Confirm:$false
 }
-$ids = (Get-Content (Join-Path $Pre "index.json") -Raw | ConvertFrom-Json) |
-    Where-Object { $_.subset -eq "test" } | ForEach-Object { $_.video_id }
-$pattern = "keypoints/(" + ($ids -join "|") + ")\.npy$"
-kaggle kernels output yun193/wlasl-preprocess -p $Pre -q --page-size 200 --file-pattern $pattern
-if ($LASTEXITCODE -ne 0) { throw "下載 test 關鍵點失敗" }
-
-$n = (Get-ChildItem (Join-Path $Pre "keypoints") -Filter *.npy).Count
-Write-Host "模型 → $ModelDir；test 關鍵點 $n / $($ids.Count) 支 → $Pre\keypoints"
+if (-not (Test-Path (Join-Path $ModelDir "model.onnx"))) { throw "沒有拉到 model.onnx（-Config 名稱對嗎？）" }
+$n = (Get-ChildItem (Join-Path $ModelDir "testdata\keypoints") -Filter *.npy).Count
+Write-Host "模型 → $ModelDir；test 關鍵點 $n 支 → $ModelDir\testdata"
