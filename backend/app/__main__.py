@@ -6,6 +6,7 @@ import webbrowser
 import uvicorn
 
 from . import config
+from .winperf import disable_power_throttling
 
 
 def _port_in_use() -> bool:
@@ -32,6 +33,8 @@ def main() -> None:
         print("尚未建置前端：請先在 frontend 執行 npm install && npm run build", file=sys.stderr)
     elif open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    # 切到瀏覽器後主控台變背景，Windows 會節流到 1/6 速度
+    disable_power_throttling()
     print(f"WLASL 即時辨識：{url}（模型 {config.MODEL_DIR.name}，只接受本機連線，Ctrl+C 結束）")
     uvicorn.run("app.main:app", host=config.HOST, port=config.PORT, log_level="warning", server_header=False)
 
