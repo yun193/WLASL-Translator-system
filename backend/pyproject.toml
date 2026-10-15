@@ -1,0 +1,26 @@
+[project]
+name = "wlasl-backend"
+version = "0.1.0"
+description = "WLASL 即時手語辨識本機後端：WebSocket 收影格 → MediaPipe → 切詞 → ONNX（CPU）"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "numpy>=1.26",
+    # 即時推論全用 CPU：分類器 CPU 1.16 ms 比 CUDA 快，後端不需要 GPU 套件
+    "onnxruntime>=1.20",
+    "wlasl",
+]
+
+[tool.uv.sources]
+wlasl = { path = "../ml", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
