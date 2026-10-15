@@ -7,6 +7,9 @@ from pathlib import Path
 
 import torch
 
+# 重訓時只改這一行（傳給 wlasl.train 的超參數，例：["--seed", "1", "--d", "160"]）
+TRAIN_ARGS: list[str] = []
+
 whl = glob.glob("/kaggle/input/**/wlasl-*.whl", recursive=True)
 assert whl, "找不到 wlasl wheel，先跑 scripts/kaggle_push_code.ps1"
 subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "--force-reinstall", "--no-deps", whl[0]])
@@ -28,6 +31,6 @@ subprocess.check_call([sys.executable, "-m", "wlasl.export", "--data", str(data)
                        "--ckpt", str(smoke / "best.pt"), "--out", str(smoke)])
 print("冒煙測試通過", flush=True)
 
-run("--out", str(out))
+run("--out", str(out), *TRAIN_ARGS)
 subprocess.check_call([sys.executable, "-m", "wlasl.export", "--data", str(data),
                        "--ckpt", str(out / "best.pt"), "--out", str(out)])

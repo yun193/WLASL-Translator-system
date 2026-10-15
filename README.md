@@ -18,7 +18,8 @@
 | 訓練 | Kaggle：CPU 做前處理，2×T4 用 `torchrun` DDP 訓練，訓練結束直接匯出 ONNX | 匯出是訓練產出的一部分，留在有 torch 的環境 |
 | 驗證 | 本機用 `onnxruntime-gpu` 跑**實際要部署的 ONNX**：top-1 / top-5、混淆矩陣、每類準確率、推論延遲，以及和 Kaggle 端 PyTorch logits 的一致性比對 | 驗的就是上線那一份模型，不是訓練框架裡的另一份 |
 | Kaggle 操作 | 全部用 `kaggle` CLI 從本機驅動：`datasets version` 推程式碼、`kernels push` 跑 notebook、`kernels status` 查進度、`kernels output` 拉產出 | 不用手動開網頁，流程可重跑 |
-| 本機 GPU | 只負責推論與驗證：分類模型匯出 ONNX，用 `onnxruntime-gpu`（CUDA） | Windows 上 Python 版 MediaPipe 沒有 GPU delegate，所以關鍵點擷取在 CPU 跑 |
+| 即時推論（2026-10-15 改） | **全部 CPU**：MediaPipe 與分類器都在 CPU；後端只裝 `onnxruntime`（CPU 版） | 實測分類器 batch 1：CPU 1.16 ms、CUDA 1.57 ms，模型太小 GPU 反而慢；瓶頸是 MediaPipe 約 95 ms/幀（佔 99%），Windows 上 MediaPipe 也沒有 GPU delegate |
+| 本機 GPU | 只在驗證時用（`ml` 的 `eval` extra：`onnxruntime-gpu==1.26.0`，CUDA EP 關 TF32） | 1.27 起 CUDA 13 套件沒有 Windows wheel；TF32 會讓 logits 差到 7e-3 |
 | 程式碼送上 Kaggle | `kaggle` CLI 把 `ml/` 推成 Kaggle Dataset，notebook 掛載後 `pip install` | repo 是 private，Kaggle 不能直接 clone，也不把 GitHub 憑證放到雲端 |
 | 前端風格 | 沿用 `side-project_VC/tools`：React 18 + Vite + Tailwind 3 + lucide-react | |
 | 後端 | 沿用 `tools`：FastAPI + uv，只綁 `127.0.0.1`，`start.ps1` 一鍵啟動 | |
@@ -65,7 +66,7 @@ WLASL-Translator-system/
 │  │  ├─ main.py  config.py  security.py  applog.py
 │  │  ├─ stream.py             # WebSocket 接收影格
 │  │  ├─ segmenter.py          # 切詞：滑動視窗 + 手部靜止偵測
-│  │  └─ inference.py          # onnxruntime-gpu 推論
+│  │  └─ inference.py          # onnxruntime（CPU）推論
 │  └─ tests/
 ├─ frontend/                   # React + Vite + Tailwind
 │  └─ src/
@@ -89,5 +90,5 @@ WLASL-Translator-system/
 [Kaggle 2×T4] 關鍵點 ──torchrun DDP──▶ 模型 ──▶ model.onnx + labels.json + 參考 logits
                     （以上全由本機 kaggle CLI 觸發與拉取）
 [本機驗證]    model.onnx + test 關鍵點 ──onnxruntime-gpu──▶ top-k / 混淆矩陣 / 延遲 / logits 一致性
-[本機推論]    前鏡頭影格 ─WebSocket─▶ MediaPipe(CPU) ─▶ 切詞 ─▶ ONNX(GPU) ─▶ gloss 串 ─▶ 畫面
+[本機推論]    前鏡頭影格 ─WebSocket─▶ MediaPipe(CPU) ─▶ 切詞 ─▶ ONNX(CPU) ─▶ gloss 串 ─▶ 畫面
 ```
