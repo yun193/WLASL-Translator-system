@@ -37,6 +37,7 @@ def health():
     return {
         "model": classifier.run_name if classifier else None,
         "classes": len(classifier.labels) if classifier else 0,
+        "labels": list(classifier.labels) if classifier else [],
         "mediapipe_model": config.MP_MODEL.is_file(),
         "segmenter": {"rest": config.REST_SECONDS, "min": config.MIN_SIGN_SECONDS, "max": config.MAX_SIGN_SECONDS},
         "min_confidence": config.MIN_CONFIDENCE,

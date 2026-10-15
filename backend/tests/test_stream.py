@@ -61,7 +61,7 @@ class TestWebSocket:
 
     def test_health(self, client):
         r = client.get("/api/health")
-        assert r.status_code == 200 and r.json()["classes"] == 100
+        assert r.status_code == 200 and r.json()["classes"] == len(r.json()["labels"]) == 100
 
     def test_http_rejects_foreign_host(self, client):
         r = client.get("/api/health", headers={"host": "evil.example:8766"})
