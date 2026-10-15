@@ -60,6 +60,20 @@ test 只有 100 支，top-1 的 95% 信賴區間約 ±10 個百分點；本機�
 - 安全：WebSocket 握手不經過 HTTP middleware，`/ws/stream` 在 accept 前另外檢查 Host 與 Origin（Origin 必填）；同時只允許一條串流。
 - 切詞 v1：手出現就開始、手消失 0.5 秒切詞、超過 4 秒強制切；連續比劃不放手時只能靠強制切，之後可改用手速低谷切詞。
 
+## 使用方式
+
+```powershell
+.\start.ps1              # 缺前端建置或原始碼有更新會先 npm build，再啟動 http://127.0.0.1:8766 並開瀏覽器
+.\start.ps1 -NoBrowser
+```
+
+- 「開啟鏡頭」：前鏡頭畫面鏡像顯示（像照鏡子），送給後端的影格不翻轉（訓練資料沒翻轉，左右手差異已由鏡像增強處理）。
+- 「播放影片檔」：用影片時間當時間戳，切詞秒數和原影片一致；可拿 WLASL 影片或自錄影片驗證。
+- 手放下 0.5 秒自動切詞；「結束這個詞」不等手放下立刻送出；信心低於 0.3 的詞以灰字加 `?` 顯示。
+- 開發模式：後端 `WLASL_DEV=1 uv run python -m app`，前端 `npm run dev`（Vite 5173 代理 `/api`、`/ws`）。
+
+端到端實測（2026-10-15，headless Chrome 假鏡頭餵 test 影片 birthday → candy → change 循環）：鏡頭與影片檔兩條路徑都切出 `birthday candy change`，約 10–13 fps、來回 30–90 ms。
+
 ## 檔案結構
 
 ```
@@ -87,9 +101,10 @@ WLASL-Translator-system/
 │  └─ tests/
 ├─ frontend/                   # React + Vite + Tailwind
 │  └─ src/
-│     ├─ pages/LiveTranslate.tsx
-│     ├─ components/CameraView.tsx
-│     └─ hooks/useSignStream.ts
+│     ├─ App.tsx               # 版面：影像 + 控制列 + 字幕 + 詞彙表
+│     ├─ components/           # CameraView（骨架疊圖）、Transcript（字幕 + top-5）、Vocabulary
+│     ├─ hooks/useSignStream.ts# 鏡頭/影片檔 → 一來一回 WebSocket → 字幕
+│     └─ lib/                  # protocol.ts（和 stream.py 對應）、skeleton.ts
 ├─ scripts/
 │  ├─ kaggle_push_code.ps1     # ml/ → Kaggle Dataset（datasets version）
 │  ├─ kaggle_run.ps1           # kernels push → 輪詢 status → 完成後拉 log
