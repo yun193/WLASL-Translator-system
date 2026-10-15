@@ -54,6 +54,8 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         streamRef.current = null;
         const video = videoRef.current;
         if (video) {
+            // 先拿掉 onerror：移除 src 本身也會觸發 error 事件
+            video.onerror = null;
             video.pause();
             video.srcObject = null;
             video.removeAttribute('src');
@@ -136,6 +138,11 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
                 await video.play();
             } else {
                 urlRef.current = URL.createObjectURL(src.file);
+                video.onerror = () => {
+                    cleanup();
+                    setStatus('error');
+                    setError('無法播放這支影片：瀏覽器不支援這個格式（建議 H.264 的 mp4）');
+                };
                 video.src = urlRef.current;
             }
         } catch (err) {

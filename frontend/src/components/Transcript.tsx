@@ -8,17 +8,21 @@ function pct(p: number) {
 /** 字幕串：有把握的詞正常顯示，低於門檻的灰字加問號（仍保留，方便看模型猜了什麼） */
 export default function Transcript({ signs }: { signs: SignEvent[] }) {
     const endRef = useRef<HTMLDivElement>(null);
-    useEffect(() => endRef.current?.scrollIntoView({ block: 'nearest' }), [signs.length]);
+    // 要用大括號：新版 Chrome 的 scrollIntoView 回傳 Promise，直接回傳會被 React 當成 cleanup 呼叫而崩潰
+    useEffect(() => {
+        endRef.current?.scrollIntoView({ block: 'nearest' });
+    }, [signs.length]);
     const last = signs[signs.length - 1];
 
     return (
         <div className="space-y-4">
-            <div className="min-h-[96px] max-h-48 overflow-y-auto rounded-lg bg-gray-900 px-4 py-3 font-mono text-2xl leading-relaxed tracking-wide">
+            {/* flex-wrap：詞與詞之間沒有空白字元，用一般 inline 排版不會換行 */}
+            <div className="min-h-[96px] max-h-48 overflow-y-auto rounded-lg bg-gray-900 px-4 py-3 font-mono text-2xl leading-relaxed tracking-wide flex flex-wrap content-start gap-x-3">
                 {signs.length === 0 ? (
                     <span className="text-gray-500 text-base font-sans">辨識到的詞會出現在這裡</span>
                 ) : (
                     signs.map((s, i) => (
-                        <span key={i} className={`mr-3 ${s.confident ? 'text-white' : 'text-gray-500 italic'}`}
+                        <span key={i} className={s.confident ? 'text-white' : 'text-gray-500 italic'}
                             title={`${s.gloss} ${pct(s.prob)}（${s.frames} 幀）`}>
                             {s.gloss}{s.confident ? '' : '?'}
                         </span>
