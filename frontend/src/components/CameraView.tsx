@@ -9,9 +9,11 @@ interface Props {
     /** 前鏡頭只翻轉顯示，送給後端的影格維持原樣（訓練資料沒有翻轉） */
     mirrored: boolean;
     live: boolean;
+    /** 蓋在畫面上的提示，例如「逐幀分析中」 */
+    notice?: string;
 }
 
-export default function CameraView({ videoRef, frame, mirrored, live }: Props) {
+export default function CameraView({ videoRef, frame, mirrored, live, notice }: Props) {
     const overlayRef = useRef<HTMLCanvasElement>(null);
 
     useEffect(() => {
@@ -37,6 +39,11 @@ export default function CameraView({ videoRef, frame, mirrored, live }: Props) {
                 <div className="text-gray-400 flex flex-col items-center gap-2 py-16">
                     <VideoOff className="w-10 h-10" />
                     <span className="text-sm">按「開啟鏡頭」或選一支影片檔開始</span>
+                </div>
+            )}
+            {live && notice && (
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white text-sm gap-2">
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> {notice}
                 </div>
             )}
             {live && frame && (

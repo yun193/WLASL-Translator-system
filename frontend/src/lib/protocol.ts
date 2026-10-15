@@ -19,6 +19,9 @@ export interface SignEvent {
     top5: { gloss: string; prob: number }[];
     frames: number;
     infer_ms: number;
+    /** 段落起訖（秒；鏡頭為 performance.now 時間，影片檔為影片時間） */
+    start: number;
+    end: number;
 }
 
 export type ServerEvent = FrameEvent | SignEvent | { type: 'error'; detail: string } | { type: 'reset' };
@@ -49,5 +52,36 @@ export const CLOSE_REASONS: Record<number, string> = {
 export async function getHealth(): Promise<Health> {
     const res = await fetch('/api/health');
     if (!res.ok) throw new Error(`後端回應 ${res.status}`);
+    return res.json();
+}
+
+export interface TrackFrame {
+    t: number;
+    hands: [boolean, boolean];
+    active: boolean;
+    points: Point[];
+}
+
+/** 影片檔逐幀分析的結果（backend/app/analyze.py） */
+export interface AnalyzeResult {
+    fps: number;
+    frames: number;
+    duration: number;
+    elapsed_s: number;
+    signs: SignEvent[];
+    track: TrackFrame[];
+}
+
+export async function analyzeVideo(file: File, signal: AbortSignal): Promise<AnalyzeResult> {
+    const res = await fetch('/api/analyze', {
+        method: 'POST',
+        body: file,
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        signal,
+    });
+    if (!res.ok) {
+        const detail = await res.json().then((b) => b.detail).catch(() => '');
+        throw new Error(detail || `後端回應 ${res.status}`);
+    }
     return res.json();
 }

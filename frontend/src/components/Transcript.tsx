@@ -6,13 +6,14 @@ function pct(p: number) {
 }
 
 /** 字幕串：有把握的詞正常顯示，低於門檻的灰字加問號（仍保留，方便看模型猜了什麼） */
-export default function Transcript({ signs }: { signs: SignEvent[] }) {
+/** highlight：影片檔播放中、目前時間落在哪個詞（-1 表示沒有） */
+export default function Transcript({ signs, highlight = -1, showTime = false }: { signs: SignEvent[]; highlight?: number; showTime?: boolean }) {
     const endRef = useRef<HTMLDivElement>(null);
     // 要用大括號：新版 Chrome 的 scrollIntoView 回傳 Promise，直接回傳會被 React 當成 cleanup 呼叫而崩潰
     useEffect(() => {
         endRef.current?.scrollIntoView({ block: 'nearest' });
     }, [signs.length]);
-    const last = signs[signs.length - 1];
+    const last = signs[highlight >= 0 ? highlight : signs.length - 1];
 
     return (
         <div className="space-y-4">
@@ -22,8 +23,9 @@ export default function Transcript({ signs }: { signs: SignEvent[] }) {
                     <span className="text-gray-500 text-base font-sans">辨識到的詞會出現在這裡</span>
                 ) : (
                     signs.map((s, i) => (
-                        <span key={i} className={s.confident ? 'text-white' : 'text-gray-500 italic'}
-                            title={`${s.gloss} ${pct(s.prob)}（${s.frames} 幀）`}>
+                        <span key={i}
+                            className={`${s.confident ? 'text-white' : 'text-gray-500 italic'} ${i === highlight ? 'bg-blue-600/60 rounded px-1 -mx-1' : ''}`}
+                            title={`${s.gloss} ${pct(s.prob)}（${s.frames} 幀${showTime ? `，${s.start.toFixed(2)}–${s.end.toFixed(2)} 秒` : ''}）`}>
                             {s.gloss}{s.confident ? '' : '?'}
                         </span>
                     ))
@@ -34,7 +36,8 @@ export default function Transcript({ signs }: { signs: SignEvent[] }) {
             {last && (
                 <div>
                     <div className="text-xs font-medium text-gray-500 mb-2">
-                        最近一個詞的前 5 名（{last.frames} 幀，分類 {last.infer_ms} ms）
+                        {highlight >= 0 ? '播放中這個詞' : '最近一個詞'}的前 5 名（{last.frames} 幀
+                        {showTime ? `，${last.start.toFixed(2)}–${last.end.toFixed(2)} 秒` : `，分類 ${last.infer_ms} ms`}）
                     </div>
                     <ul className="space-y-1.5">
                         {last.top5.map((t, i) => (

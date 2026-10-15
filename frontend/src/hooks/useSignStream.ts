@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { CLOSE_REASONS, packFrame, type FrameEvent, type ServerEvent, type SignEvent } from '../lib/protocol';
 
-export type Source = { kind: 'camera' } | { kind: 'file'; file: File };
-export type Status = 'idle' | 'starting' | 'running' | 'done' | 'error';
+export type Status = 'idle' | 'starting' | 'running' | 'error';
 export interface Stats { fps: number; mpMs: number; rttMs: number }
 
 // 基準測試：480p 每幀約 74 ms，7.5～15 fps 準確率不變 → 送 640×480 以內、最多 15 fps
@@ -20,7 +19,7 @@ function cameraError(err: unknown): string {
 }
 
 /**
- * 影像來源（前鏡頭或影片檔）→ WebSocket → 即時字幕。
+ * 前鏡頭 → WebSocket → 即時字幕（影片檔改走 useVideoAnalysis 逐幀分析）。
  * 一來一回：收到這一幀的 frame 回覆才送下一幀，送的速度自動配合後端處理速度，延遲不會越堆越長。
  */
 export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
@@ -29,13 +28,10 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
     const [frame, setFrame] = useState<FrameEvent | null>(null);
     const [signs, setSigns] = useState<SignEvent[]>([]);
     const [stats, setStats] = useState<Stats>({ fps: 0, mpMs: 0, rttMs: 0 });
-    const [sourceKind, setSourceKind] = useState<Source['kind'] | null>(null);
 
     const wsRef = useRef<WebSocket | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const urlRef = useRef<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const kindRef = useRef<Source['kind']>('camera');
     const timerRef = useRef(0);
     const sentAtRef = useRef(0);
     const lastReplyRef = useRef(0);
@@ -53,27 +49,16 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         const video = videoRef.current;
-        if (video) {
-            // 先拿掉 onerror：移除 src 本身也會觸發 error 事件
-            video.onerror = null;
+        if (video && video.srcObject) {
             video.pause();
             video.srcObject = null;
-            video.removeAttribute('src');
         }
-        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-        urlRef.current = null;
     }, [videoRef]);
 
     const sendNext = useCallback(async () => {
         const ws = wsRef.current;
         const video = videoRef.current;
         if (!ws || ws.readyState !== WebSocket.OPEN || !video) return;
-        if (kindRef.current === 'file' && video.ended) {
-            // 影片播完：把還沒切出的最後一個詞交給分類器
-            ws.send(JSON.stringify({ type: 'flush' }));
-            setStatus('done');
-            return;
-        }
         if (video.readyState < 2 || !video.videoWidth) {
             timerRef.current = window.setTimeout(sendNext, 50);
             return;
@@ -83,8 +68,7 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         canvas.width = Math.round(video.videoWidth * s);
         canvas.height = Math.round(video.videoHeight * s);
         canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
-        // 影片檔用影片時間，切詞的秒數才和原影片一致；鏡頭用實際時間
-        const ts = kindRef.current === 'file' ? video.currentTime * 1000 : performance.now();
+        const ts = performance.now();
         const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', JPEG_QUALITY));
         if (!blob || wsRef.current !== ws) return;
         const payload = packFrame(ts, await blob.arrayBuffer());
@@ -117,36 +101,24 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         }
     }, [scheduleNext]);
 
-    const start = useCallback(async (src: Source) => {
+    const start = useCallback(async () => {
         cleanup();
         setError('');
         setFrame(null);
         // 每次換來源都是新的一段辨識，字幕不接續上一段（否則多次播放同一支單字影片會看起來像句子）
         setSigns([]);
         setStatus('starting');
-        setSourceKind(src.kind);
-        kindRef.current = src.kind;
         fpsRef.current = 0;
         const video = videoRef.current;
         if (!video) return;
         try {
-            if (src.kind === 'camera') {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: { ideal: MAX_W }, height: { ideal: MAX_H }, facingMode: 'user' },
-                    audio: false,
-                });
-                streamRef.current = stream;
-                video.srcObject = stream;
-                await video.play();
-            } else {
-                urlRef.current = URL.createObjectURL(src.file);
-                video.onerror = () => {
-                    cleanup();
-                    setStatus('error');
-                    setError('無法播放這支影片：瀏覽器不支援這個格式（建議 H.264 的 mp4）');
-                };
-                video.src = urlRef.current;
-            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: MAX_W }, height: { ideal: MAX_H }, facingMode: 'user' },
+                audio: false,
+            });
+            streamRef.current = stream;
+            video.srcObject = stream;
+            await video.play();
         } catch (err) {
             cleanup();
             setStatus('error');
@@ -157,10 +129,8 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/stream`);
         ws.binaryType = 'arraybuffer';
         wsRef.current = ws;
-        ws.onopen = async () => {
+        ws.onopen = () => {
             setStatus('running');
-            // 影片檔等連線好才開始播放，開頭的動作才不會漏掉
-            if (kindRef.current === 'file') await video.play().catch(() => undefined);
             lastReplyRef.current = performance.now();
             sendNext();
         };
@@ -177,7 +147,6 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
         cleanup();
         setStatus('idle');
         setFrame(null);
-        setSourceKind(null);
     }, [cleanup]);
 
     const send = useCallback((type: 'flush' | 'reset') => {
@@ -193,5 +162,5 @@ export function useSignStream(videoRef: RefObject<HTMLVideoElement>) {
 
     useEffect(() => cleanup, [cleanup]);
 
-    return { status, error, frame, signs, stats, sourceKind, start, stop, flush, clear };
+    return { status, error, frame, signs, stats, start, stop, flush, clear };
 }
