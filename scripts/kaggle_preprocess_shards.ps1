@@ -13,7 +13,8 @@ $Root = Split-Path $PSScriptRoot -Parent
 $Template = Join-Path $Root "kaggle\preprocess"
 $code = Get-Content (Join-Path $Template "preprocess.py") -Raw -Encoding UTF8
 $meta = Get-Content (Join-Path $Template "kernel-metadata.json") -Raw | ConvertFrom-Json
-if ($code -notmatch "(?m)^SHARDS = $Shards$") { throw "kaggle/preprocess/preprocess.py 的 SHARDS 不是 $Shards" }
+# 範本是 CRLF：.NET 的 (?m)$ 只認 LF，所以用 (?=\r?$) 允許前面的 CR
+if ($code -notmatch "(?m)^SHARDS = $Shards(?=\r?$)") { throw "kaggle/preprocess/preprocess.py 的 SHARDS 不是 $Shards" }
 
 $ids = @()
 for ($i = 0; $i -lt $Shards; $i++) {
@@ -23,7 +24,9 @@ for ($i = 0; $i -lt $Shards; $i++) {
     $stage = Join-Path $Root "data\kaggle_stage\prep-$i"
     New-Item -ItemType Directory -Force $stage | Out-Null
     $utf8 = New-Object System.Text.UTF8Encoding $false
-    [IO.File]::WriteAllText((Join-Path $stage "preprocess.py"), ($code -replace "(?m)^SHARD = \d+$", "SHARD = $i"), $utf8)
+    $shardCode = $code -replace "(?m)^SHARD = \d+(?=\r?$)", "SHARD = $i"
+    if ($shardCode -notmatch "(?m)^SHARD = $i(?=\r?$)") { throw "改寫 SHARD 失敗" }
+    [IO.File]::WriteAllText((Join-Path $stage "preprocess.py"), $shardCode, $utf8)
     $meta.id = $id
     $meta.title = "wlasl-prep-$i"
     [IO.File]::WriteAllText((Join-Path $stage "kernel-metadata.json"), ($meta | ConvertTo-Json -Depth 3), $utf8)
