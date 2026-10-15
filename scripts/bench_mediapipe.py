@@ -67,7 +67,7 @@ def main():
 
     import onnxruntime as ort
 
-    from wlasl.dataset import load_split, prepare
+    from wlasl.dataset import load_split, prepare, resample_mode
     from wlasl.evaluate import nan_aware_max_diff, topk_hits, wilson
 
     splits, _ = load_split(args.data)
@@ -83,7 +83,7 @@ def main():
         t0 = time.time()
         with ProcessPoolExecutor(args.workers) as pool:
             outs = list(pool.map(_job, jobs))
-        x = np.stack([prepare(seq) for seq, _ in outs])
+        x = np.stack([prepare(seq, mode=resample_mode(args.model)) for seq, _ in outs])
         logits = sess.run(None, {"keypoints": x})[0]
         h1, h5 = topk_hits(logits, y, 1), topk_hits(logits, y, 5)
         res = {"top1": float(h1.mean()), "top1_ci95": wilson(int(h1.sum()), len(y)), "top5": float(h5.mean()),

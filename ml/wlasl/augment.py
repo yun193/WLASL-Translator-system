@@ -46,10 +46,38 @@ def time_crop(seq: np.ndarray, rng: np.random.Generator, min_keep=0.8) -> np.nda
     return seq[start : start + keep]
 
 
-def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5) -> np.ndarray:
+def choose_span(n: int, labeled: tuple[int, int], segmented: list[tuple[int, int]], fps: float,
+                rng: np.random.Generator, p_segmenter=0.5, jitter_s=0.2, min_len=4) -> tuple[int, int]:
+    """決定這次取整支影片的哪一段：人工標註的起訖，或上線切詞器會切出的範圍，兩端再各抖動 ±jitter_s 秒。
+
+    上線時起訖由切詞器決定（常多包進手放下的動作），只用人工標註訓練的模型沒看過這種輸入。
+    """
+    a, b = labeled
+    if n <= min_len:
+        return 0, n
+    if segmented and rng.random() < p_segmenter:
+        # 取和人工標註重疊最多的那一段
+        a, b = max(segmented, key=lambda s: min(s[1], b) - max(s[0], a))
+    j = jitter_s * fps
+    a = int(np.clip(a + rng.integers(-round(j), round(j) + 1), 0, n - min_len))
+    b = int(np.clip(b + rng.integers(-round(j), round(j) + 1), a + min_len, n))
+    return a, b
+
+
+def time_subsample(seq: np.ndarray, rng: np.random.Generator, strides=(1, 2, 3), p=(0.4, 0.35, 0.25)) -> np.ndarray:
+    """每 s 幀取 1 幀、起點隨機：訓練影片約 30 fps，上線串流只有 10～15 fps，而且每次抽到的相位不同。"""
+    s = int(rng.choice(strides, p=p))
+    if s == 1 or len(seq) < 2 * s:
+        return seq
+    return seq[rng.integers(0, s)::s]
+
+
+def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5, subsample=True) -> np.ndarray:
     if rng.random() < p_mirror:
         seq = mirror(seq)
-    seq = time_crop(seq, rng)
+    if subsample:
+        seq = time_subsample(seq, rng)
+    seq = time_crop(seq, rng, min_keep=0.9 if subsample else 0.8)
     seq = affine(seq, rng)
     jitter = rng.normal(0, 0.003, seq.shape).astype(np.float32)
     return (seq + jitter).astype(np.float32)

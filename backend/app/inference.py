@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from wlasl.dataset import prepare
+from wlasl.dataset import prepare, resample_mode
 
 
 @dataclass
@@ -35,10 +35,11 @@ class Classifier:
         self.session = ort.InferenceSession(str(model_dir / "model.onnx"), opts, providers=["CPUExecutionProvider"])
         self.labels: list[str] = json.loads((model_dir / "labels.json").read_text(encoding="utf-8"))
         self.run_name = model_dir.name
+        self.mode = resample_mode(model_dir)
 
     def predict(self, raw: np.ndarray) -> Prediction:
         """raw：(T, K, 3) 未正規化的關鍵點。"""
-        x = prepare(raw)[None]
+        x = prepare(raw, mode=self.mode)[None]
         probs = softmax(self.session.run(None, {"keypoints": x})[0][0])
         order = np.argsort(-probs)[:5]
         top5 = [(self.labels[i], float(probs[i])) for i in order]

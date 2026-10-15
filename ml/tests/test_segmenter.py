@@ -1,6 +1,6 @@
 import numpy as np
 
-from app.segmenter import Segmenter, hands_visible
+from wlasl.segmenter import Segmenter, hands_visible, segment_spans
 from wlasl.landmarks import K, LEFT_HAND
 
 
@@ -51,3 +51,13 @@ def test_flush_returns_pending_segment():
     feed(seg, [True] * 8)
     assert len(seg.flush()) == 8
     assert seg.flush() is None
+
+
+def test_segment_spans_returns_frame_indices():
+    # 10 fps：第 5～14 幀有手，之後手放下；pre-roll 0.3 秒 = 往前 3 幀，段尾保留 0.5 秒靜止後才切
+    pattern = [False] * 5 + [True] * 10 + [False] * 15
+    seq = np.stack([frame(h) for h in pattern])
+    spans = segment_spans(seq, 10.0)
+    assert len(spans) == 1
+    a, b = spans[0]
+    assert a == 2 and 15 < b <= 22

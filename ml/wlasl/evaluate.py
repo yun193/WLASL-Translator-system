@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from wlasl.dataset import load_raw, load_split, prepare
+from wlasl.dataset import labeled_span, load_raw, load_split, prepare, resample_mode
 
 PREP_TOL = 1e-5
 ONNX_TOL = 1e-3
@@ -115,14 +115,16 @@ def main(argv=None) -> dict:
 
     labels = json.loads((args.model / "labels.json").read_text(encoding="utf-8"))
     ref = np.load(args.model / "reference.npz")
-    splits, _ = load_split(args.data)
+    splits, _ = load_split(args.data, len(labels))
+    mode = resample_mode(args.model)
     by_id = {r["video_id"]: r for r in splits["test"]}
     ids = [str(v) for v in ref["video_ids"]]
     records = [by_id[i] for i in ids]
     y = np.array([r["label"] for r in records])
 
     # 1. 前處理一致性
-    local_x = np.stack([prepare(s) for s in load_raw(args.data, records)])
+    local_x = np.stack([prepare(s[slice(*labeled_span(r, len(s)))], mode=mode)
+                        for r, s in zip(records, load_raw(args.data, records))])
     prep_diff = nan_aware_max_diff(local_x, ref["inputs"])
 
     # 2. 匯出一致性（用 Kaggle 的輸入，隔離掉前處理差異）

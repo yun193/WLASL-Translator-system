@@ -16,7 +16,7 @@ from wlasl.landmarks import LEFT_HAND, RIGHT_HAND, LandmarkExtractor
 
 from . import config
 from .inference import Classifier
-from .segmenter import Segmenter
+from wlasl.segmenter import Segmenter
 
 HEADER = struct.Struct("<d")
 

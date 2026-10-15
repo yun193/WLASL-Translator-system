@@ -1,13 +1,16 @@
 """WLASL 影片 → 關鍵點 .npy（Kaggle CPU 端執行）。
 
 輸出目錄：
-  keypoints/<video_id>.npy   (T, K, 3) float32，未正規化，缺點為 NaN
-  index.json                 每支影片的 label / gloss / subset / fps / 幀數
+  keypoints/<video_id>.npy   (T, K, 3) float32，未正規化，缺點為 NaN；整支影片（不截 nslt 起訖）
+  index.json                 每支影片的 label / gloss / subset / fps / 幀數，start / end 是 nslt 人工標註起訖
   labels.json                第 i 類的 gloss
   failed.json                擷取失敗的影片與原因
 已存在的 .npy 會跳過，中斷後可以接著跑。
 
-用法：python -m wlasl.preprocess --root <WLASL 資料夾> --out <輸出> --subset 100 --workers 4
+擷取整支影片，是為了讓訓練能取到標註起訖之外的幀（上線時切詞器常多包進手放下的動作）。
+WLASL2000 約 1.2 萬支，單一 Kaggle kernel 要 8 小時，用 --shard i --shards n 拆給多個 kernel 平行跑。
+
+用法：python -m wlasl.preprocess --root <WLASL 資料夾> --out <輸出> --subset 2000 --workers 4 [--shard 0 --shards 4]
 """
 
 from __future__ import annotations
@@ -45,12 +48,14 @@ def build_manifest(root: Path, subset: int) -> tuple[list[dict], list[str]]:
 def _work(item: dict, out_dir: str, model_path: str) -> dict:
     dst = Path(out_dir) / f"{item['video_id']}.npy"
     try:
-        seq, fps = extract_video(item["path"], model_path, item["start"], item["end"])
+        seq, fps = extract_video(item["path"], model_path)
         if len(seq) == 0:
             raise ValueError("讀不到任何幀")
         np.save(dst, seq)
         hands = ~np.isnan(seq[:, N_POSE:, 0]).all(1)
-        return {**item, "fps": fps, "frames": len(seq), "hand_ratio": float(hands.mean())}
+        end = len(seq) if item["end"] == -1 else min(item["end"], len(seq))
+        return {**item, "fps": fps, "frames": len(seq),
+                "hand_ratio": float(hands[item["start"] - 1 : end].mean()) if end >= item["start"] else 0.0}
     except Exception as e:  # 單支影片失敗不影響整批
         return {**item, "error": f"{type(e).__name__}: {e}"}
 
@@ -63,12 +68,15 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--model", type=Path, default=Path("/tmp/holistic_landmarker.task"))
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 支（試跑用）")
+    ap.add_argument("--shard", type=int, default=0)
+    ap.add_argument("--shards", type=int, default=1)
     args = ap.parse_args(argv)
 
     kp_dir = args.out / "keypoints"
     kp_dir.mkdir(parents=True, exist_ok=True)
     model = str(ensure_model(args.model))
     items, labels = build_manifest(args.root, args.subset)
+    items = items[args.shard :: args.shards]
     if args.limit:
         items = items[: args.limit]
     (args.out / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=1), encoding="utf-8")

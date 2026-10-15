@@ -2,8 +2,10 @@ import numpy as np
 import pytest
 
 from wlasl import landmarks as L
-from wlasl.augment import MIRROR_PERM, augment, mirror, time_crop
-from wlasl.dataset import SEQ_LEN, prepare, resample
+import json
+
+from wlasl.augment import MIRROR_PERM, augment, choose_span, mirror, time_crop, time_subsample
+from wlasl.dataset import SEQ_LEN, labeled_span, load_split, prepare, resample, resample_mode
 
 
 def _seq(t=30, seed=0):
@@ -54,3 +56,49 @@ def test_time_crop_and_augment_shapes():
     a = augment(s, rng)
     assert a.dtype == np.float32 and a.shape[1:] == (L.K, 3)
     assert prepare(a).shape == (SEQ_LEN, L.K, 3)
+
+
+def test_resample_linear_interpolates_and_does_not_spread_nan():
+    s = np.zeros((3, L.K, 3), np.float32)
+    s[:, 0, 0] = [0.0, 1.0, 2.0]
+    s[0, 1] = np.nan
+    r = resample(s, 5)
+    np.testing.assert_allclose(r[:, 0, 0], [0, 0.5, 1, 1.5, 2])
+    # 第 0 幀是 NaN：碰到它的內插點退回最近鄰，位置 0.5 捨入到第 0 幀所以仍是 NaN；NaN 不會再往後擴散
+    assert np.isnan(r[:2, 1]).all() and not np.isnan(r[2:, 1]).any()
+    near = resample(s, 5, mode="nearest")
+    np.testing.assert_allclose(near[:, 0, 0], [0, 0, 1, 2, 2])  # np.round 是銀行家捨入：0.5→0、1.5→2
+
+
+def test_resample_mode_defaults_to_nearest_for_old_models(tmp_path):
+    assert resample_mode(tmp_path) == "nearest"
+    (tmp_path / "metrics.json").write_text(json.dumps({"resample": "linear"}))
+    assert resample_mode(tmp_path) == "linear"
+
+
+def test_labeled_span_and_class_filter(tmp_path):
+    assert labeled_span({"start": 3, "end": 10}, 8) == (2, 8)
+    assert labeled_span({"start": 1, "end": -1}, 8) == (0, 8)
+    idx = [{"video_id": "a", "label": 0, "subset": "train"}, {"video_id": "b", "label": 5, "subset": "test"}]
+    (tmp_path / "index.json").write_text(json.dumps(idx))
+    (tmp_path / "labels.json").write_text(json.dumps([str(i) for i in range(10)]))
+    splits, labels = load_split(tmp_path, classes=3)
+    assert labels == ["0", "1", "2"] and len(splits["train"]) == 1 and not splits["test"]
+
+
+def test_choose_span_stays_in_bounds_and_uses_segmenter():
+    rng = np.random.default_rng(0)
+    for _ in range(200):
+        a, b = choose_span(60, (10, 40), [(5, 55)], 30.0, rng)
+        assert 0 <= a and b <= 60 and b - a >= 4
+    # p_segmenter=1、不抖動：一定取和標註重疊最多的切詞段
+    assert choose_span(60, (10, 40), [(0, 8), (12, 50)], 30.0, rng, p_segmenter=1, jitter_s=0) == (12, 50)
+    assert choose_span(3, (0, 3), [], 30.0, rng) == (0, 3)
+
+
+def test_time_subsample_strides():
+    rng = np.random.default_rng(1)
+    s = _seq(60)
+    lens = {len(time_subsample(s, rng)) for _ in range(100)}
+    assert lens <= {60, 30, 20} and len(lens) == 3
+    assert len(time_subsample(s[:3], rng, strides=(3,), p=(1.0,))) == 3  # 太短就不抽

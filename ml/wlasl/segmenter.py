@@ -1,6 +1,6 @@
 """切詞：把連續影格切成一段一段的單詞。
 
-規則（v1，以時間戳計算，不依賴固定 fps）：
+規則（v1，以時間戳計算，不依賴固定 fps；後端串流與訓練增強共用這一份）：
   - 任一手被偵測到 → 進入「比劃中」，往前補 PRE_ROLL 秒（訓練影片開頭也有手還沒舉起的幀）
   - 手消失連續超過 REST 秒 → 這個詞結束，段尾保留這段靜止
   - 比劃超過 MAX 秒 → 強制切一刀，避免連續比劃時永遠不出字
@@ -72,3 +72,17 @@ class Segmenter:
         if span < self.min_len:
             return None
         return np.stack(frames)
+
+
+def segment_spans(seq: np.ndarray, fps: float, **kwargs) -> list[tuple[int, int]]:
+    """離線跑一遍切詞器（每幀時間 = i / fps），回傳每段的 [起, 迄) 幀索引。
+
+    訓練時用它取得「上線時切詞器會切出的範圍」，讓模型看過和上線相同的起訖。
+    """
+    seg, spans = Segmenter(**kwargs), []
+    for i, f in enumerate(seq):
+        if seg.push(i / fps, f) is not None:
+            spans.append(seg.last_span)
+    if seg.flush() is not None:
+        spans.append(seg.last_span)
+    return [(round(a * fps), round(b * fps) + 1) for a, b in spans]
