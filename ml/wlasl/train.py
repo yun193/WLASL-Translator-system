@@ -143,9 +143,9 @@ def main(argv=None):
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     steps_per_epoch = len(loader)
     total = args.epochs * steps_per_epoch
-    warm = args.warmup * steps_per_epoch
+    warm = min(args.warmup, args.epochs - 1) * steps_per_epoch  # epochs ≤ warmup（如冒煙測試）時仍留一段 cosine
     sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: (s + 1) / warm if s < warm else 0.5 * (1 + math.cos(math.pi * (s - warm) / (total - warm)))
+        opt, lambda s: (s + 1) / warm if s < warm else 0.5 * (1 + math.cos(math.pi * (s - warm) / max(total - warm, 1)))
     )
     crit = nn.CrossEntropyLoss(label_smoothing=args.smoothing)
     if main_proc:
