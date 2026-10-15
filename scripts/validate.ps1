@@ -26,5 +26,5 @@ $py = Join-Path $Root "ml\.venv\Scripts\python.exe"
 $evalArgs = @("-m", "wlasl.evaluate", "--model", (Join-Path $Root "models\$Run"),
           "--data", (Join-Path $Root "data\kaggle_out\preprocess"))
 if ($NoLatency) { $evalArgs += "--no-latency" }
-& $py @args
+& $py @evalArgs
 if ($LASTEXITCODE -ne 0) { throw "驗證失敗" }
