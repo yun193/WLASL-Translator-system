@@ -69,6 +69,10 @@ class SignSession:
 
     def handle_frame(self, data: bytes) -> list[dict]:
         ts_ms, frame = decode_frame(data)
+        return self.process(ts_ms, frame)
+
+    def process(self, ts_ms: float, frame: np.ndarray) -> list[dict]:
+        """一幀 BGR 影像 → [frame 事件, (切出詞時) sign 事件]；串流與影片檔分析共用。"""
         # MediaPipe VIDEO 模式要求時間戳嚴格遞增
         ts = max(int(ts_ms), self._last_ts + 1)
         self._last_ts = ts
@@ -101,5 +105,7 @@ class SignSession:
             "confident": p.prob >= config.MIN_CONFIDENCE,
             "top5": [{"gloss": g, "prob": round(pr, 4)} for g, pr in p.top5],
             "frames": int(len(segment)),
+            "start": round(self.segmenter.last_span[0], 3),
+            "end": round(self.segmenter.last_span[1], 3),
             "infer_ms": round((time.perf_counter() - t0) * 1000, 2),
         }

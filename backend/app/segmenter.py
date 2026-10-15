@@ -31,6 +31,7 @@ class Segmenter:
     _times: list = field(default_factory=list)
     _first_hand_t: float | None = None
     _last_hand_t: float | None = None
+    last_span: tuple[float, float] = (0.0, 0.0)  # 最近一次切出的段落起訖秒數（含 pre-roll 與段尾靜止）
 
     @property
     def active(self) -> bool:
@@ -65,6 +66,7 @@ class Segmenter:
 
     def _cut(self) -> np.ndarray | None:
         frames, span = self._frames, self._last_hand_t - self._first_hand_t
+        self.last_span = (self._times[0], self._times[-1])
         self._frames, self._times, self._first_hand_t, self._last_hand_t = [], [], None, None
         # 用「手出現的時間跨度」判斷，段尾的靜止不算
         if span < self.min_len:

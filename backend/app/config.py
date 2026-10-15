@@ -27,6 +27,11 @@ MAX_SESSIONS = 1
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 MAX_FRAME_PIXELS = 1920 * 1080
 
+# 影片檔逐幀分析：上傳大小、長度上限；高度超過就縮到 720p（每幀成本和解析度成正比）
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_VIDEO_SECONDS = 60
+MAX_VIDEO_HEIGHT = 720
+
 # 切詞（秒）：手出現就開始，手消失超過 REST_SECONDS 就切；單詞太短丟掉、太長強制切
 REST_SECONDS = 0.5
 PRE_ROLL_SECONDS = 0.3

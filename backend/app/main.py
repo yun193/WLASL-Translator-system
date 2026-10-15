@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
+from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import applog, config, security
+from .analyze import VideoError, analyze_video
 from .inference import Classifier
 from .stream import FrameError, SignSession
 
@@ -42,6 +46,40 @@ def health():
         "segmenter": {"rest": config.REST_SECONDS, "min": config.MIN_SIGN_SECONDS, "max": config.MAX_SIGN_SECONDS},
         "min_confidence": config.MIN_CONFIDENCE,
     }
+
+
+@app.post("/api/analyze")
+async def analyze(request: Request):
+    """影片檔逐幀分析（body 直接是影片位元組）。和即時串流共用同一個名額，避免兩邊搶 CPU。"""
+    if classifier is None:
+        return JSONResponse({"detail": "後端沒有載入模型"}, status_code=503)
+    ctype = request.headers.get("content-type", "")
+    if not (ctype.startswith("video/") or ctype == "application/octet-stream"):
+        return JSONResponse({"detail": "只接受影片檔"}, status_code=415)
+    if int(request.headers.get("content-length") or 0) > config.MAX_VIDEO_BYTES:
+        return JSONResponse({"detail": "影片檔太大"}, status_code=413)
+    if _sessions.locked():
+        return JSONResponse({"detail": "辨識正在使用中，請先停止另一邊"}, status_code=503)
+    async with _sessions:
+        fd, name = tempfile.mkstemp(suffix=".video")
+        path = Path(name)
+        try:
+            size = 0
+            with os.fdopen(fd, "wb") as f:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > config.MAX_VIDEO_BYTES:
+                        return JSONResponse({"detail": "影片檔太大"}, status_code=413)
+                    f.write(chunk)
+            try:
+                result = await asyncio.to_thread(analyze_video, path, classifier)
+            except VideoError as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=422)
+        finally:
+            path.unlink(missing_ok=True)
+    applog.event("analyze", bytes=size, frames=result["frames"], elapsed_s=result["elapsed_s"],
+                 signs=[x["gloss"] for x in result["signs"]])
+    return result
 
 
 def _parse_command(text: str) -> str | None:
