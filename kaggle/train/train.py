@@ -13,9 +13,10 @@ from pathlib import Path
 import torch
 
 # 重訓時只改這裡：每個設定佔一張 GPU 同時跑（傳給 wlasl.train 的超參數）
+# 2026-10-18：w2000（seed 0）已有結果；這輪比「加關鍵點雜訊」與「只換 seed」，後者量出單次訓練本身的起伏
 CONFIGS: dict[str, list[str]] = {
-    "w100": ["--classes", "100", "--epochs", "300"],
-    "w2000": ["--classes", "2000", "--epochs", "100", "--warmup", "5"],
+    "w2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise"],
+    "w2000s1": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--seed", "1"],
 }
 EVAL_CLASSES = 100
 

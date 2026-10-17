@@ -72,12 +72,33 @@ def time_subsample(seq: np.ndarray, rng: np.random.Generator, strides=(1, 2, 3),
     return seq[rng.integers(0, s)::s]
 
 
-def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5, subsample=True) -> np.ndarray:
+def keypoint_noise(seq: np.ndarray, rng: np.random.Generator, sigma_max=0.006, p_shift=0.05, shift_sigma=0.02,
+                   p_drop_max=0.04) -> np.ndarray:
+    """模擬鏡頭串流（640×480 JPEG80）的關鍵點誤差，量自 test 影片與 Kaggle 擷取的差：
+    手的座標差中位 0.0014、p90 0.0077、p99 0.035（長尾），且約 2% 的幀手忽有忽無。
+
+    - 每點高斯雜訊：σ 每支影片隨機取 0～sigma_max，涵蓋中位到 p90
+    - 整隻手平移：每幀每隻手以 p_shift 機率整體偏移 N(0, shift_sigma)，補長尾（追蹤跳一下）
+    - 手掉幀：每幀每隻手以 0～p_drop_max 的機率設成 NaN（偵測不到）
+    """
+    out = seq + rng.normal(0, rng.uniform(0, sigma_max), seq.shape).astype(np.float32)
+    t = len(out)
+    p_drop = rng.uniform(0, p_drop_max)
+    for hand in (LEFT_HAND, RIGHT_HAND):
+        shift = rng.random(t) < p_shift
+        out[shift, hand, :2] += rng.normal(0, shift_sigma, (shift.sum(), 1, 2)).astype(np.float32)
+        out[rng.random(t) < p_drop, hand] = np.nan
+    return out
+
+
+def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5, subsample=True, noise=False) -> np.ndarray:
     if rng.random() < p_mirror:
         seq = mirror(seq)
     if subsample:
         seq = time_subsample(seq, rng)
     seq = time_crop(seq, rng, min_keep=0.9 if subsample else 0.8)
     seq = affine(seq, rng)
+    if noise:
+        return keypoint_noise(seq, rng).astype(np.float32)
     jitter = rng.normal(0, 0.003, seq.shape).astype(np.float32)
     return (seq + jitter).astype(np.float32)

@@ -33,9 +33,9 @@ from wlasl.segmenter import segment_spans
 
 
 class TrainSet(Dataset):
-    def __init__(self, raws, records, seed, mode, p_segmenter, subsample):
+    def __init__(self, raws, records, seed, mode, p_segmenter, subsample, noise=False):
         self.raws, self.seed, self.mode = raws, seed, mode
-        self.p_segmenter, self.subsample = p_segmenter, subsample
+        self.p_segmenter, self.subsample, self.noise = p_segmenter, subsample, noise
         self.labels = [r["label"] for r in records]
         self.fps = [r.get("fps") or 25.0 for r in records]
         self.labeled = [labeled_span(r, len(s)) for r, s in zip(records, raws)]
@@ -51,7 +51,7 @@ class TrainSet(Dataset):
         seq = self.raws[i]
         a, b = choose_span(len(seq), self.labeled[i], self.segmented[i] if self.segmented else [], self.fps[i],
                            rng, p_segmenter=self.p_segmenter)
-        x = prepare(augment(seq[a:b], rng, subsample=self.subsample), mode=self.mode)
+        x = prepare(augment(seq[a:b], rng, subsample=self.subsample, noise=self.noise), mode=self.mode)
         return torch.from_numpy(x), self.labels[i]
 
 
@@ -104,6 +104,7 @@ def main(argv=None):
     ap.add_argument("--resample", choices=["linear", "nearest"], default="linear")
     ap.add_argument("--p-segmenter", type=float, default=0.5, help="訓練時用切詞器起訖取代標註起訖的機率")
     ap.add_argument("--no-subsample", action="store_true", help="關掉時間抽幀增強")
+    ap.add_argument("--noise", action="store_true", help="關鍵點雜訊增強（模擬鏡頭 JPEG：高斯、整手跳動、手掉幀）")
     args = ap.parse_args(argv)
 
     ddp = "WORLD_SIZE" in os.environ
@@ -126,7 +127,7 @@ def main(argv=None):
     n_eval = min(args.eval_classes, len(labels))
     tr = splits["train"]
     train_set = TrainSet(load_raw(args.data, tr), tr, args.seed, args.resample, args.p_segmenter,
-                         not args.no_subsample)
+                         not args.no_subsample, args.noise)
     sampler = DistributedSampler(train_set, world, rank, shuffle=True, seed=args.seed) if ddp else None
     loader = DataLoader(train_set, args.bs, shuffle=sampler is None, sampler=sampler, num_workers=2,
                         drop_last=True, persistent_workers=False)

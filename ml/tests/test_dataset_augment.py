@@ -4,7 +4,7 @@ import pytest
 from wlasl import landmarks as L
 import json
 
-from wlasl.augment import MIRROR_PERM, augment, choose_span, mirror, time_crop, time_subsample
+from wlasl.augment import MIRROR_PERM, augment, choose_span, keypoint_noise, mirror, time_crop, time_subsample
 from wlasl.dataset import SEQ_LEN, labeled_span, load_split, prepare, resample, resample_mode
 
 
@@ -102,3 +102,14 @@ def test_time_subsample_strides():
     lens = {len(time_subsample(s, rng)) for _ in range(100)}
     assert lens <= {60, 30, 20} and len(lens) == 3
     assert len(time_subsample(s[:3], rng, strides=(3,), p=(1.0,))) == 3  # 太短就不抽
+
+
+def test_keypoint_noise_drops_hands_but_keeps_shape():
+    rng = np.random.default_rng(0)
+    s = _seq(400)
+    n = keypoint_noise(s, rng, p_drop_max=0.5)
+    assert n.shape == s.shape and n.dtype == np.float32
+    hand_nan = np.isnan(n[:, L.LEFT_HAND, 0]).all(1)
+    assert 0 < hand_nan.mean() < 0.5  # 整隻手一起掉，不是零星的點
+    assert not np.isnan(n[:, : L.LEFT_HAND.start]).any()  # 姿勢點不掉
+    assert prepare(augment(s, rng, noise=True)).shape == (SEQ_LEN, L.K, 3)
