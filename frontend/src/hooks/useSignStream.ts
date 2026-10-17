@@ -4,10 +4,11 @@ import { CLOSE_REASONS, packFrame, type FrameEvent, type ServerEvent, type SignE
 export type Status = 'idle' | 'starting' | 'running' | 'error';
 export interface Stats { fps: number; mpMs: number; rttMs: number }
 
-// 基準測試：480p 每幀約 74 ms，7.5～15 fps 準確率不變 → 送 640×480 以內、最多 15 fps
+// 關掉 EcoQoS 後 MediaPipe 每幀約 26 ms；eval_backend 量到 30 fps 相位一致率 93%（15 fps 87%）→ 最多 30 fps
+// 一來一回送幀，後端跟不上時實際 fps 會自動降下來
 const MAX_W = 640;
 const MAX_H = 480;
-const MAX_FPS = 15;
+const MAX_FPS = 30;
 const JPEG_QUALITY = 0.8;
 
 function cameraError(err: unknown): string {

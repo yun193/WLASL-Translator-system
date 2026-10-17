@@ -5,7 +5,7 @@ function pct(p: number) {
     return `${Math.round(p * 100)}%`;
 }
 
-/** 字幕串：有把握的詞正常顯示，低於門檻的灰字加問號（仍保留，方便看模型猜了什麼） */
+/** 字幕串：有把握的詞正常顯示；低於門檻的不輸出詞，只顯示「?」與前 3 名候選（低信心時模型常隨抽幀翻盤） */
 /** highlight：影片檔播放中、目前時間落在哪個詞（-1 表示沒有） */
 export default function Transcript({ signs, highlight = -1, showTime = false }: { signs: SignEvent[]; highlight?: number; showTime?: boolean }) {
     const endRef = useRef<HTMLDivElement>(null);
@@ -26,7 +26,9 @@ export default function Transcript({ signs, highlight = -1, showTime = false }: 
                         <span key={i}
                             className={`${s.confident ? 'text-white' : 'text-gray-500 italic'} ${i === highlight ? 'bg-blue-600/60 rounded px-1 -mx-1' : ''}`}
                             title={`${s.gloss} ${pct(s.prob)}（${s.frames} 幀${showTime ? `，${s.start.toFixed(2)}–${s.end.toFixed(2)} 秒` : ''}）`}>
-                            {s.gloss}{s.confident ? '' : '?'}
+                            {s.confident ? s.gloss : (
+                                <>?<span className="ml-1 text-sm not-italic">({s.top5.slice(0, 3).map((t) => t.gloss).join(' / ')})</span></>
+                            )}
                         </span>
                     ))
                 )}

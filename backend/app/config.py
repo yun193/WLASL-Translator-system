@@ -38,7 +38,8 @@ PRE_ROLL_SECONDS = 0.3
 MIN_SIGN_SECONDS = 0.4
 MAX_SIGN_SECONDS = 4.0
 # top-1 機率低於門檻就回報「不確定」而不是硬猜
-MIN_CONFIDENCE = 0.3
+# 0.5：w2000 test 上涵蓋 76%、其中正確 91%；鏡頭模式的相位翻盤幾乎都落在門檻以下
+MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", "0.5"))
 
 # 即時紀錄檔（JSONL）
 LOG_DIR = Path(os.environ.get("WLASL_LOG_DIR") or ROOT_DIR / "logs")
