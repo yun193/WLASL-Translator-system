@@ -33,3 +33,7 @@ frontend/dist/
 
 # 即時紀錄檔
 logs/
+
+# 長影片測試素材
+*.mkv
+*.webm
