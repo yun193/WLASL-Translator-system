@@ -46,8 +46,8 @@ def post_video(url: str, path: Path) -> dict:
         except urllib.error.HTTPError as e:
             if e.code != 503 or attempt == 19:  # 503 = 另一邊（例如瀏覽器）正在用，稍等重試
                 raise RuntimeError(f"{path.name}: HTTP {e.code} {e.read().decode('utf-8', 'replace')}") from e
-        except ConnectionResetError:
-            # 忙碌時後端沒讀 body 就回 503 並關閉，Windows 上客戶端常收到 RST 而不是 503
+        except (ConnectionResetError, ConnectionAbortedError):
+            # 忙碌時後端沒讀 body 就回 503 並關閉，Windows 上客戶端常收到 RST（10054）或 10053 而不是 503
             if attempt == 19:
                 raise
         time.sleep(1)
