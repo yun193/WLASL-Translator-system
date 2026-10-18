@@ -18,7 +18,7 @@ class VideoError(ValueError):
     pass
 
 
-def analyze_video(path: Path, classifier: Classifier) -> dict:
+def analyze_video(path: Path, classifier: Classifier, spot_classifier: Classifier | None = None) -> dict:
     import cv2
 
     cap = cv2.VideoCapture(str(path))
@@ -33,7 +33,7 @@ def analyze_video(path: Path, classifier: Classifier) -> dict:
             raise VideoError(f"影片太長（上限 {config.MAX_VIDEO_SECONDS:g} 秒）")
 
         t0 = time.perf_counter()
-        session = SignSession(classifier)
+        session = SignSession(classifier, spot_classifier=spot_classifier)
         track, signs, i = [], [], 0
         try:
             while True:

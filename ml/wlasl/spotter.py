@@ -94,8 +94,11 @@ class Sign:
 
 class SignDecoder:
     def __init__(self, classify: Callable[[np.ndarray], Prediction], segmenter: Segmenter,
-                 spotter: Spotter | None = None, continuous_after: float = 3.5):
+                 spotter: Spotter | None = None, continuous_after: float = 3.5,
+                 spot_classify: Callable[[np.ndarray], Prediction] | None = None):
+        """classify：單字整段分類；spot_classify：窗口偵測（可換成有背景類的模型，預設同 classify）。"""
         self.classify, self.segmenter, self.spotter = classify, segmenter, spotter
+        self.spot_classify = spot_classify or classify
         self.continuous_after = continuous_after
         self.continuous = False
         self._pending: list[Sign] = []
@@ -109,7 +112,7 @@ class SignDecoder:
         if self.spotter is not None:
             win = self.spotter.push(t, frame)
             if win is not None:
-                hit = self.spotter.update(win[0], t, self.classify(win[1]))
+                hit = self.spotter.update(win[0], t, self.spot_classify(win[1]))
                 if hit is not None:
                     sign = Sign(hit[0], hit[1], hit[2], len(win[1]), "spot")
                     (out if self.continuous else self._pending).append(sign)

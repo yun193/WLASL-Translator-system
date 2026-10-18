@@ -17,6 +17,11 @@ from .stream import FrameError, SignSession
 
 app = FastAPI(title="WLASL 即時手語辨識", docs_url=None, redoc_url=None, openapi_url=None)
 classifier = Classifier(config.MODEL_DIR) if config.MODEL_DIR else None
+spot_classifier = None
+if classifier and config.SPOT_MODEL_DIR and config.SPOT_MODEL_DIR != config.MODEL_DIR:
+    spot_classifier = Classifier(config.SPOT_MODEL_DIR)
+    if spot_classifier.labels != classifier.labels:  # 兩個模型的詞彙不同就不能混用
+        spot_classifier = None
 _sessions = asyncio.Semaphore(config.MAX_SESSIONS)
 applog.event("startup", port=config.PORT, dev=config.DEV, model=classifier.run_name if classifier else None)
 
@@ -45,7 +50,8 @@ def health():
         "mediapipe_model": config.MP_MODEL.is_file(),
         "segmenter": {"rest": config.REST_SECONDS, "min": config.MIN_SIGN_SECONDS, "max": config.MAX_SIGN_SECONDS},
         "min_confidence": config.MIN_CONFIDENCE,
-        "spotting": {"after": config.CONTINUOUS_AFTER, "window": config.SPOT_WINDOW, "hits": config.SPOT_MIN_HITS,
+        "spotting": {"model": (spot_classifier or classifier).run_name if classifier else None,
+                     "after": config.CONTINUOUS_AFTER, "window": config.SPOT_WINDOW, "hits": config.SPOT_MIN_HITS,
                      "threshold": config.SPOT_THRESHOLD} if config.SPOTTING else None,
     }
 
@@ -74,7 +80,7 @@ async def analyze(request: Request):
                         return JSONResponse({"detail": "影片檔太大"}, status_code=413)
                     f.write(chunk)
             try:
-                result = await asyncio.to_thread(analyze_video, path, classifier)
+                result = await asyncio.to_thread(analyze_video, path, classifier, spot_classifier)
             except VideoError as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=422)
         finally:
@@ -108,7 +114,7 @@ async def stream(ws: WebSocket):
         return
     async with _sessions:
         await ws.accept()
-        session = await asyncio.to_thread(SignSession, classifier)
+        session = await asyncio.to_thread(SignSession, classifier, None, spot_classifier)
         applog.event("stream_open")
         frames = signs = 0
         try:

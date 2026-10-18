@@ -51,17 +51,18 @@ def _points(raw: np.ndarray, aspect: float) -> list:
 
 
 class SignSession:
-    def __init__(self, classifier: Classifier, extractor: LandmarkExtractor | None = None):
-        self.classifier = classifier
+    def __init__(self, classifier: Classifier, extractor: LandmarkExtractor | None = None,
+                 spot_classifier: Classifier | None = None):
+        self.classifier, self.spot_classifier = classifier, spot_classifier or classifier
         self.extractor = extractor or LandmarkExtractor(config.MP_MODEL)
-        self.decoder = new_decoder(classifier)
+        self.decoder = new_decoder(self.classifier, self.spot_classifier)
         self._last_ts = -1
 
     def close(self) -> None:
         self.extractor.close()
 
     def reset(self) -> None:
-        self.decoder = new_decoder(self.classifier)
+        self.decoder = new_decoder(self.classifier, self.spot_classifier)
 
     def handle_frame(self, data: bytes) -> list[dict]:
         ts_ms, frame = decode_frame(data)
@@ -92,12 +93,13 @@ class SignSession:
         return [sign_event(s, 0.0) for s in self.decoder.flush()]
 
 
-def new_decoder(classifier: Classifier) -> SignDecoder:
+def new_decoder(classifier: Classifier, spot_classifier: Classifier | None = None) -> SignDecoder:
     seg = Segmenter(rest=config.REST_SECONDS, pre_roll=config.PRE_ROLL_SECONDS,
                     min_len=config.MIN_SIGN_SECONDS, max_len=config.MAX_SIGN_SECONDS)
     spot = (Spotter(window=config.SPOT_WINDOW, hop=config.SPOT_HOP, min_hits=config.SPOT_MIN_HITS,
                     threshold=config.SPOT_THRESHOLD) if config.SPOTTING else None)
-    return SignDecoder(classifier.predict, seg, spot, continuous_after=config.CONTINUOUS_AFTER)
+    return SignDecoder(classifier.predict, seg, spot, continuous_after=config.CONTINUOUS_AFTER,
+                       spot_classify=(spot_classifier or classifier).predict)
 
 
 def sign_event(s: Sign, infer_ms: float) -> dict:

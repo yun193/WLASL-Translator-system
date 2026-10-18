@@ -1,4 +1,5 @@
 """集中管理設定。只在本機使用，HOST 不開放由環境變數覆寫。"""
+import json
 import os
 from pathlib import Path
 
@@ -17,8 +18,18 @@ def _latest_model_dir() -> Path | None:
     return max(runs, key=lambda p: p.stat().st_mtime) if runs else None
 
 
+def _latest_background_model_dir() -> Path | None:
+    runs = [p for p in (ROOT_DIR / "models").glob("*") if (p / "model.onnx").is_file()
+            and json.loads((p / "labels.json").read_text(encoding="utf-8"))[-1] == "_bg"]
+    return max(runs, key=lambda p: p.stat().st_mtime) if runs else None
+
+
 # 分類模型：預設用 models/ 底下最新的一版（scripts/kaggle_pull_model.ps1 拉下來的）
 MODEL_DIR = Path(os.environ["WLASL_MODEL_DIR"]) if os.environ.get("WLASL_MODEL_DIR") else _latest_model_dir()
+# 連續比劃的窗口偵測用的模型：預設用最新一版有背景類（不是詞）的模型；沒有就和 MODEL_DIR 同一個。
+# 2026-10-19 spotbench：單字整段分類 w2000n 較好（第一個詞正確 70% vs 64%），連續偵測 w2000bg 較好（合成召回 59% vs 51%，誤報相同）
+SPOT_MODEL_DIR = (Path(os.environ["WLASL_SPOT_MODEL_DIR"]) if os.environ.get("WLASL_SPOT_MODEL_DIR")
+                  else _latest_background_model_dir() or MODEL_DIR)
 # MediaPipe Holistic 模型檔，不存在時第一次啟動會自動下載
 MP_MODEL = ROOT_DIR / "data" / "models" / "holistic_landmarker.task"
 
@@ -45,10 +56,11 @@ MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", "0.5"))
 # 每 SPOT_HOP 秒分類最近 SPOT_WINDOW 秒，連續 SPOT_MIN_HITS 個窗口同一個詞、信心 ≥ SPOT_THRESHOLD 才輸出
 SPOTTING = os.environ.get("WLASL_SPOTTING", "1") == "1"
 CONTINUOUS_AFTER = 3.5  # WLASL test 的單字段落（含 pre-roll 與段尾靜止）中位 2.0 秒、超過 3.5 秒的只有 3%
-SPOT_WINDOW = 1.0
+# 在合成連續手語與 podcast 前半掃 window × hits × th，誤報 ≤ 5 次/分鐘時 w2000bg 召回最高的組合
+SPOT_WINDOW = 1.3
 SPOT_HOP = 0.25
-SPOT_MIN_HITS = 2
-SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.5"))
+SPOT_MIN_HITS = 1
+SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.7"))
 
 # 即時紀錄檔（JSONL）
 LOG_DIR = Path(os.environ.get("WLASL_LOG_DIR") or ROOT_DIR / "logs")

@@ -1,6 +1,6 @@
 """連續手語解碼評估：用和後端相同的解碼器（切詞器＋窗口偵測，wlasl.spotter）重播關鍵點，三種測試。
 
-  uv run --project backend python scripts/spotbench.py <models/run> [--grid] [--out 檔.json]
+  uv run --project backend python scripts/spotbench.py <models/run> [--spot-model <models/run>] [--grid] [--out 檔.json]
 
   1. 單字（isolated）：WLASL test 整支影片（前 V 類），看使用者實際看到的輸出：第一個有信心的詞對不對、多報了幾個
   2. 合成連續（synth）：test 單字取真正在比的範圍、統一成 30 fps、接起來（中間 0.03～0.15 秒過渡），
@@ -30,6 +30,7 @@ TESTDATA = ROOT / "data" / "kaggle_out" / "export" / "testdata"  # 2000 類 test
 PODCAST = ROOT / "docs" / "podcast-ep3"
 PODCAST_KP = ROOT / "data" / "podcast" / "ep3_kp.npz"
 FPS = 30.0
+SPOT: dict = {}  # --spot-model：窗口偵測改用另一個模型（和後端 SPOT_MODEL_DIR 相同）
 
 
 class Cached:
@@ -53,7 +54,7 @@ def decode(classify, raw, fps, p):
     seg = Segmenter(rest=config.REST_SECONDS, pre_roll=config.PRE_ROLL_SECONDS,
                     min_len=config.MIN_SIGN_SECONDS, max_len=config.MAX_SIGN_SECONDS)
     spot = Spotter(window=p["window"], hop=p["hop"], min_hits=p["hits"], threshold=p["th"]) if p["spot"] else None
-    dec = SignDecoder(classify, seg, spot, continuous_after=p["after"])
+    dec = SignDecoder(classify, seg, spot, continuous_after=p["after"], spot_classify=SPOT.get("classify"))
     out = [s for i, f in enumerate(raw) for s in dec.push(i / fps, f)] + dec.flush()
     th = config.MIN_CONFIDENCE
     # 使用者看到的詞：偵測輸出（已過門檻），或整段分類信心過門檻且不是背景
@@ -166,11 +167,14 @@ def main(argv=None):
     ap.add_argument("--after", type=float, default=3.5)
     ap.add_argument("--grid", action="store_true", help="在合成連續與 podcast 前半掃 window × hits × th")
     ap.add_argument("--part", type=int, default=2, help="podcast 用哪一半：1 調參、2 驗證")
+    ap.add_argument("--spot-model", type=Path, help="窗口偵測用的模型（預設和整段分類同一個）")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
 
     clf = Classifier(args.model)
     classify = Cached(clf)
+    if args.spot_model:
+        SPOT["classify"] = Cached(Classifier(args.spot_model))
     inv, oov, labels, labeled_span = load_test(clf.labels)
     seqs = build_synth(inv, oov, labels, labeled_span)
     d = np.load(PODCAST_KP)
@@ -178,7 +182,8 @@ def main(argv=None):
     occ = lv.match_vocab(lv.flat_tokens(json.loads((PODCAST / "transcript.json").read_text(encoding="utf-8"))),
                          set(clf.labels))
     base = {"window": args.window, "hop": args.hop, "hits": args.hits, "th": args.th, "after": args.after, "spot": True}
-    res = {"model": args.model.name, "background": clf.has_background, "params": base}
+    res = {"model": args.model.name, "spot_model": args.spot_model.name if args.spot_model else None,
+           "background": clf.has_background, "params": base}
 
     if args.grid:
         rows = []
