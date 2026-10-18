@@ -37,3 +37,4 @@ logs/
 # 長影片測試素材
 *.mkv
 *.webm
+docs/podcast-ep3/model_*.json

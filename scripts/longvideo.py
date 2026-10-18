@@ -102,6 +102,7 @@ def transcript(json3: Path, out: Path) -> None:
 
 
 # ---------- predict ----------
+WINDOWS = (0.6, 1.0, 1.5)
 def predict(kp: Path, model_dir: Path, out: Path, name: str) -> None:
     from app import config
     from app.inference import Classifier
@@ -128,16 +129,21 @@ def predict(kp: Path, model_dir: Path, out: Path, name: str) -> None:
     if s is not None:
         emit(s)
 
-    # 滑動窗口（不靠切詞器）：每 0.25 秒取 1 秒窗口直接分類，用來和切詞器版本比，分開「切詞」和「辨識」兩個問題
-    win, hop = round(fps * 1.0), round(fps * 0.25)
+    # 滑動窗口（不靠切詞器）：每 0.25 秒取固定長度窗口直接分類，用來和切詞器版本比，分開「切詞」和「辨識」兩個問題；
+    # 試三種窗口長度：會話手語一個詞常只有 0.3～0.6 秒，訓練資料的單字影片則是 1～2 秒
     from wlasl.segmenter import hands_visible
-    windows = []
-    for a in range(0, len(raw) - win, hop):
-        w = raw[a:a + win]
-        if sum(hands_visible(x) for x in w) < win * 0.5:
-            continue
-        p = clf.predict(w)
-        windows.append({"t": round((a + win / 2) / fps, 3), "gloss": p.gloss, "prob": round(p.prob, 4)})
+    hop = round(fps * 0.25)
+    windows = {}
+    for size in WINDOWS:
+        win, out_w = round(fps * size), []
+        for a in range(0, len(raw) - win, hop):
+            w = raw[a:a + win]
+            if sum(hands_visible(x) for x in w) < win * 0.5:
+                continue
+            p = clf.predict(w)
+            out_w.append({"t": round((a + win / 2) / fps, 3), "top": [g for g, _ in p.top5],
+                          "p": [round(pr, 4) for _, pr in p.top5]})
+        windows[str(size)] = out_w
 
     hand = np.array([hands_visible(x) for x in raw])
     res = {"model": model_dir.name, "classes": len(clf.labels), "fps": fps, "frames": len(raw),
@@ -153,13 +159,27 @@ def predict(kp: Path, model_dir: Path, out: Path, name: str) -> None:
           f"- 影片 {len(raw)} 幀（{fps:.2f} fps、{fmt(len(raw) / fps)}），有手的幀 {hand.mean():.0%}",
           f"- 切出 {len(signs)} 個詞；長度中位 {np.median(lens):.2f} 秒，碰到 4 秒上限的 {np.mean(lens >= config.MAX_SIGN_SECONDS - 0.05):.0%}",
           f"- 信心 ≥ {th} 的 {sum(s['prob'] >= th for s in signs)} 個；低於門檻顯示成 ?(前 3 名)", "",
+          "## 切詞器輸出（和網頁上看到的一樣）", "",
           "| 開始 | 結束 | 長度 | 輸出 | 信心 | 前 3 名 |", "| --- | --- | --- | --- | --- | --- |"]
     for s in signs:
         shown = s["gloss"] if s["prob"] >= th else "?"
         top3 = " / ".join(f"{g} {p:.0%}" for g, p in s["top5"][:3])
         md.append(f"| {fmt(s['start'])} | {fmt(s['end'])} | {s['end'] - s['start']:.1f}s | {shown} | {s['prob']:.0%} | {top3} |")
+    # 滑動窗口 1 秒、信心 ≥ 門檻的輸出，相鄰同詞合併：不靠切詞器時模型「看到」的詞串
+    merged = []
+    for w in windows["1.0"]:
+        if w["p"][0] < th:
+            continue
+        if merged and merged[-1]["gloss"] == w["top"][0] and w["t"] - merged[-1]["end"] <= 0.5:
+            merged[-1]["end"] = w["t"]
+            merged[-1]["prob"] = max(merged[-1]["prob"], w["p"][0])
+        else:
+            merged.append({"start": w["t"], "end": w["t"], "gloss": w["top"][0], "prob": w["p"][0]})
+    md += ["", f"## 不經切詞器：1 秒滑動窗口、信心 ≥ {th}（相鄰同詞合併，共 {len(merged)} 個）", "",
+           "| 時間 | 輸出 | 最高信心 |", "| --- | --- | --- |"]
+    md += [f"| {fmt(m['start'])}–{fmt(m['end'])} | {m['gloss']} | {m['prob']:.0%} |" for m in merged]
     out.write_text("\n".join(md) + "\n", encoding="utf-8")
-    print(f"{len(signs)} 個詞、{len(windows)} 個窗口 → {out}")
+    print(f"{len(signs)} 個詞、{len(merged)} 個窗口輸出 → {out}")
 
 
 # ---------- compare ----------
@@ -195,21 +215,41 @@ def variants(w: str) -> list[str]:
     return out
 
 
-def match_vocab(words: list[dict], vocab: set[str]) -> list[dict]:
-    """逐字稿 → 詞彙表內的出現 [{t, gloss, word}]；先比 3、2 個字的片語（ice cream、give up），再比單字。"""
-    toks = norm_tokens(" ".join(w["w"] for w in words))
+def flat_tokens(words: list[dict]) -> list[dict]:
+    """字幕片段攤平成逐字 [{t, tok, proper}]。proper：句中大寫開頭（人名、地名、機構），ASL 多半用指拼，不算在詞彙比對裡。"""
+    out, prev = [], "."
+    for w in words:
+        for raw in w["w"].split():
+            tok = norm_tokens(raw)[0] if norm_tokens(raw) else ""
+            if tok:
+                proper = raw[0].isupper() and tok != "i" and not tok.startswith("i'") and prev[-1:] not in ".?!"
+                out.append({"t": w["t"], "tok": tok, "proper": proper})
+            prev = raw
+    return out
+
+
+def is_function(tok: str) -> bool:
+    return tok in FUNCTION or IRREGULAR.get(tok) in FUNCTION
+
+
+def match_vocab(flat: list[dict], vocab: set[str]) -> list[dict]:
+    """逐字 → 詞彙表內的實詞出現 [{t, gloss}]；先比 3、2 個字的片語（ice cream、give up），再比單字。
+    虛詞（a、the、to、is…）和專有名詞（Card、Keller…）不算：前者 ASL 通常不打，後者用指拼，都不是這個模型該認的。"""
     hits, i = [], 0
-    while i < len(toks):
+    while i < len(flat):
         for n in (3, 2, 1):
-            if i + n > len(toks):
+            seg = flat[i:i + n]
+            if len(seg) < n or any(x["proper"] for x in seg):
                 continue
             if n > 1:
-                cand = [" ".join(toks[i:i + n])]
+                cand = [" ".join(x["tok"] for x in seg)]
+            elif is_function(seg[0]["tok"]):
+                continue
             else:
-                cand = variants(toks[i])
+                cand = variants(seg[0]["tok"])
             g = next((c for c in cand if c in vocab), None)
             if g:
-                hits.append({"t": words[i]["t"], "gloss": g, "word": " ".join(toks[i:i + n])})
+                hits.append({"t": seg[0]["t"], "gloss": g})
                 i += n
                 break
         else:
@@ -217,103 +257,109 @@ def match_vocab(words: list[dict], vocab: set[str]) -> list[dict]:
     return hits
 
 
-def hit_rate(events, occ, before, after):
-    """events：[(t, gloss)]；occ：逐字稿出現 [{t, gloss}]。回傳逐字稿出現中，前 before 秒～後 after 秒內有同一個詞被輸出的比例。"""
+def _index(pairs):
     by = {}
-    for t, g in events:
+    for t, g in pairs:
         by.setdefault(g, []).append(t)
-    for g in by:
-        by[g] = np.array(by[g])
-    ok = [bool(len(by.get(o["gloss"], [])) and np.any((by[o["gloss"]] >= o["t"] - before) & (by[o["gloss"]] <= o["t"] + after)))
-          for o in occ]
+    return {g: np.array(v) for g, v in by.items()}
+
+
+def recall(events, occ, before, after):
+    """逐字稿出現中，[t − before, t + after] 內模型有輸出同一個詞的比例。events：[(t, gloss)]。"""
+    by = _index(events)
+    ok = [g in by and bool(np.any((by[g] >= o["t"] - before) & (by[g] <= o["t"] + after)))
+          for o in occ for g in [o["gloss"]]]
     return float(np.mean(ok)) if ok else 0.0
 
 
 def precision(events, occ, before, after):
-    """模型輸出的詞中，在 [t - after, t + before] 內逐字稿出現同一個詞的比例（配音比手語晚）。"""
-    by = {}
-    for o in occ:
-        by.setdefault(o["gloss"], []).append(o["t"])
-    by = {g: np.array(v) for g, v in by.items()}
-    ok = [bool(g in by and np.any((by[g] >= t - after) & (by[g] <= t + before))) for t, g in events]
+    """模型輸出中，[t − after, t + before] 內逐字稿真的出現同一個詞的比例。"""
+    by = _index([(o["t"], o["gloss"]) for o in occ])
+    ok = [g in by and bool(np.any((by[g] >= t - after) & (by[g] <= t + before))) for t, g in events]
     return float(np.mean(ok)) if ok else 0.0
 
 
-def shifted(events, duration, rng, k=20):
-    """時間循環平移 k 次：保留詞頻，打亂和時間的對應，當作「純靠猜」的基準。"""
+def with_baseline(fn, events, occ, duration, before, after, k=20):
+    """實際值與機率基準：把模型輸出整條時間軸循環平移 k 次（保留詞頻、打亂時間對應）取平均。"""
+    rng = np.random.default_rng(0)
+    real = fn(events, occ, before, after)
+    base = []
     for _ in range(k):
         d = rng.uniform(0.2 * duration, 0.8 * duration)
-        yield [((t + d) % duration, g) for t, g in events]
+        base.append(fn([((t + d) % duration, g) for t, g in events], occ, before, after))
+    return real, float(np.mean(base))
 
 
 def compare(folder: Path, names: list[str], before=4.0, after=2.0) -> None:
     words = json.loads((folder / "transcript.json").read_text(encoding="utf-8"))
-    toks = [t for t in norm_tokens(" ".join(w["w"] for w in words)) if t]
-    content = [t for t in toks if t not in FUNCTION and not any(v in FUNCTION for v in variants(t)[:2])]
-    rng = np.random.default_rng(0)
-    md = ["# 對比報告：逐字稿 vs 手語模型（Breakdown Ep. 3）", "",
-          f"- 逐字稿 {len(toks)} 字，其中實詞（去掉冠詞、be 動詞、介系詞等 ASL 通常不打的字）{len(content)} 字",
+    flat = flat_tokens(words)
+    content = [x for x in flat if not x["proper"] and not is_function(x["tok"])]
+    proper = [x for x in flat if x["proper"]]
+    md = ["# 對比資料：逐字稿 vs 手語模型（Breakdown Ep. 3）", "",
+          "由 `scripts/longvideo.py compare` 產生；解讀見 report.md。", "",
+          f"- 逐字稿 {len(flat)} 字：實詞 {len(content)}、虛詞（冠詞、be 動詞、介系詞等）{len(flat) - len(content) - len(proper)}、"
+          f"專有名詞（指拼）{len(proper)}",
           f"- 時間對齊：逐字稿某字在 t 秒，模型在 [t − {before:.0f}, t + {after:.0f}] 秒內輸出同一個詞就算對上（英文配音比手語晚）",
-          "- 機率基準：把模型輸出整條時間軸循環平移 20 次後的平均。高出基準才代表模型真的在看手語，而不是常見詞剛好撞上", ""]
-    rows, notes = [], []
+          "- 機率基準（括號）：模型輸出整條時間軸循環平移 20 次的平均。高出基準才代表模型真的看懂了那一段，而不是常見詞剛好撞上", ""]
+    rows = []
     for name in names:
         res = json.loads((folder / f"model_{name}.json").read_text(encoding="utf-8"))
         labels = json.loads((ROOT / "models" / res["model"] / "labels.json").read_text(encoding="utf-8"))
         vocab = set(labels)
-        occ = match_vocab(words, vocab)
+        occ = match_vocab(flat, vocab)
         dur = res["frames"] / res["fps"]
         th = res["min_confidence"]
-        segs = [(s["start"], s["gloss"]) for s in res["signs"]]
-        segs_conf = [(s["start"], s["gloss"]) for s in res["signs"] if s["prob"] >= th]
-        wins = [(w["t"], w["gloss"]) for w in res["windows"]]
-        wins_conf = [(w["t"], w["gloss"]) for w in res["windows"] if w["prob"] >= th]
         lens = np.array([s["end"] - s["start"] for s in res["signs"]])
-        cov_tok = sum(1 for t in content if any(v in vocab for v in variants(t))) / max(len(content), 1)
-        uniq = {t for t in content}
-        cov_uniq = sum(1 for t in uniq if any(v in vocab for v in variants(t))) / max(len(uniq), 1)
-
-        def both(fn, ev):
-            real = fn(ev, occ, before, after)
-            base = np.mean([fn(s, occ, before, after) for s in shifted(ev, dur, rng)])
-            return real, base
-
-        r = {"name": name, "classes": len(labels), "cov_tok": cov_tok, "cov_uniq": cov_uniq, "occ": len(occ),
-             "n_seg": len(segs), "seg_med": float(np.median(lens)), "seg_cap": float(np.mean(lens >= 3.95)),
-             "hands": res["hands_visible_ratio"],
-             "seg_rec": both(hit_rate, segs), "win_rec": both(hit_rate, wins),
-             "segc_prec": both(precision, segs_conf), "winc_prec": both(precision, wins_conf),
-             "n_segc": len(segs_conf), "n_winc": len(wins_conf)}
-        rows.append(r)
-        # 對上的例子
-        by = {}
-        for t, g in wins_conf:
-            by.setdefault(g, []).append(t)
-        found = [o for o in occ if any(o["t"] - before <= t <= o["t"] + after for t in by.get(o["gloss"], []))]
-        top = {}
+        r = {"name": name, "classes": len(labels), "occ": len(occ),
+             "cov_tok": sum(any(v in vocab for v in variants(x["tok"])) for x in content) / len(content),
+             "cov_uniq": (lambda u: sum(any(v in vocab for v in variants(t)) for t in u) / len(u))({x["tok"] for x in content}),
+             "hands": res["hands_visible_ratio"], "n_seg": len(res["signs"]),
+             "seg_med": float(np.median(lens)), "seg_cap": float(np.mean(lens >= 3.95)),
+             "seg": {"recall": with_baseline(recall, [(s["start"], s["gloss"]) for s in res["signs"]], occ, dur, before, after),
+                     "precision": with_baseline(precision, [(s["start"], s["gloss"]) for s in res["signs"] if s["prob"] >= th],
+                                                occ, dur, before, after),
+                     "n_conf": sum(s["prob"] >= th for s in res["signs"])},
+             "win": {}}
+        for size, ws in res["windows"].items():
+            conf = [(w["t"], w["top"][0]) for w in ws if w["p"][0] >= th]
+            r["win"][size] = {
+                "n": len(ws), "n_conf": len(conf),
+                "recall_top1": with_baseline(recall, [(w["t"], w["top"][0]) for w in ws], occ, dur, before, after),
+                "recall_top5": with_baseline(recall, [(w["t"], g) for w in ws for g in w["top"]], occ, dur, before, after),
+                "precision_conf": with_baseline(precision, conf, occ, dur, before, after),
+            }
+        # 1 秒窗口信心 ≥ 門檻、對得上的詞（看是哪些詞認得出來）
+        conf1 = _index([(w["t"], w["top"][0]) for w in res["windows"]["1.0"] if w["p"][0] >= th])
+        found = [o for o in occ if o["gloss"] in conf1
+                 and np.any((conf1[o["gloss"]] >= o["t"] - before) & (conf1[o["gloss"]] <= o["t"] + after))]
+        freq = {}
         for o in occ:
-            top[o["gloss"]] = top.get(o["gloss"], 0) + 1
-        notes.append((name, found, sorted(top.items(), key=lambda x: -x[1])[:15]))
+            freq[o["gloss"]] = freq.get(o["gloss"], 0) + 1
+        r["top_occ"] = sorted(freq.items(), key=lambda x: -x[1])[:20]
+        r["found"] = [[o["gloss"], fmt(o["t"])] for o in found]
+        rows.append(r)
 
     def pp(x):
-        return f"{x[0]:.0%}（基準 {x[1]:.0%}）"
+        return f"{x[0]:.0%}（{x[1]:.0%}）"
 
-    md += ["## 1. 詞彙覆蓋（模型「認得」逐字稿裡多少字）", "",
-           "| 模型 | 詞數 | 實詞覆蓋（出現次數） | 實詞覆蓋（不重複字） | 逐字稿中可比對的出現 |", "| --- | --- | --- | --- | --- |"]
-    md += [f"| {r['name']} | {r['classes']} | {r['cov_tok']:.0%} | {r['cov_uniq']:.0%} | {r['occ']} 次 |" for r in rows]
-    md += ["", "## 2. 切詞（連續手語能不能切成一個一個詞）", "",
-           "| 模型 | 有手的幀 | 切出詞數 | 長度中位 | 碰到 4 秒上限 |", "| --- | --- | --- | --- | --- |"]
-    md += [f"| {r['name']} | {r['hands']:.0%} | {r['n_seg']} | {r['seg_med']:.1f} 秒 | {r['seg_cap']:.0%} |" for r in rows]
-    md += ["", "## 3. 辨識（對得上逐字稿的比例，括號是機率基準）", "",
-           "召回：逐字稿裡可比對的出現，有多少被模型在時間窗內輸出。精確：模型輸出（信心 ≥ 門檻）中有多少在時間窗內真的出現在逐字稿。",
-           "滑動窗口不經過切詞器：每 0.25 秒取 1 秒直接分類，用來把「切詞」和「辨識」兩個問題分開。", "",
-           "| 模型 | 切詞器 召回 | 切詞器 精確（信心≥門檻） | 滑動窗口 召回 | 滑動窗口 精確（信心≥門檻） |",
+    md += ["## 1. 詞彙覆蓋", "", "| 模型 | 詞數 | 實詞覆蓋（出現次數） | 實詞覆蓋（不重複字） | 可比對的出現 |",
            "| --- | --- | --- | --- | --- |"]
-    md += [f"| {r['name']} | {pp(r['seg_rec'])} | {pp(r['segc_prec'])}，{r['n_segc']} 個 | {pp(r['win_rec'])} | {pp(r['winc_prec'])}，{r['n_winc']} 個 |"
-           for r in rows]
-    for name, found, top in notes:
-        md += ["", f"### {name}：逐字稿最常出現的可比對詞", "", ", ".join(f"{g}×{n}" for g, n in top)]
-        ex = ", ".join(f"{o['gloss']}@{fmt(o['t'])}" for o in found[:30])
-        md += ["", f"滑動窗口（信心≥門檻）對上的例子（{len(found)} 個）：{ex or '無'}"]
+    md += [f"| {r['name']} | {r['classes']} | {r['cov_tok']:.0%} | {r['cov_uniq']:.0%} | {r['occ']} 次 |" for r in rows]
+    md += ["", "## 2. 切詞器", "", "| 模型 | 有手的幀 | 切出詞數 | 長度中位 | 碰到 4 秒上限 | 召回 | 精確（信心≥門檻） |",
+           "| --- | --- | --- | --- | --- | --- | --- |"]
+    md += [f"| {r['name']} | {r['hands']:.0%} | {r['n_seg']} | {r['seg_med']:.1f} 秒 | {r['seg_cap']:.0%} | "
+           f"{pp(r['seg']['recall'])} | {pp(r['seg']['precision'])}，{r['seg']['n_conf']} 個 |" for r in rows]
+    md += ["", "## 3. 不經切詞器：滑動窗口（每 0.25 秒）", "",
+           "召回 top-1／top-5：逐字稿的出現有多少在時間窗內被模型列為第 1 名／前 5 名。精確：信心 ≥ 門檻的輸出有多少對得上逐字稿。", "",
+           "| 模型 | 窗口 | 召回 top-1 | 召回 top-5 | 精確（信心≥門檻） | 信心≥門檻的窗口 |", "| --- | --- | --- | --- | --- | --- |"]
+    for r in rows:
+        for size, w in r["win"].items():
+            md.append(f"| {r['name']} | {size} 秒 | {pp(w['recall_top1'])} | {pp(w['recall_top5'])} | "
+                      f"{pp(w['precision_conf'])} | {w['n_conf']}／{w['n']} |")
+    for r in rows:
+        md += ["", f"### {r['name']}：逐字稿最常出現的可比對詞", "", ", ".join(f"{g}×{n}" for g, n in r["top_occ"]),
+               "", f"1 秒窗口（信心≥門檻）對上的出現（{len(r['found'])} 個）：" +
+               (", ".join(f"{g}@{t}" for g, t in r["found"][:40]) or "無")]
     (folder / "comparison_data.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     (folder / "comparison_data.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
     print("\n".join(md))
