@@ -14,6 +14,7 @@ import numpy as np
 from wlasl.landmarks import normalize
 
 SEQ_LEN = 64
+BG = "_bg"  # 背景類（不是詞）的標籤，固定放在 labels 最後一類
 
 
 def resample(seq: np.ndarray, length: int = SEQ_LEN, mode: str = "linear") -> np.ndarray:

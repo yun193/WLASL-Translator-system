@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from wlasl.dataset import labeled_span, load_raw, load_split, prepare, resample_mode
+from wlasl.dataset import BG, labeled_span, load_raw, load_split, prepare, resample_mode
 
 PREP_TOL = 1e-5
 ONNX_TOL = 1e-3
@@ -114,6 +114,9 @@ def main(argv=None) -> dict:
     out.mkdir(exist_ok=True)
 
     labels = json.loads((args.model / "labels.json").read_text(encoding="utf-8"))
+    # 有背景類（最後一類）的模型：top-1／top-5 照舊只比詞彙（和舊模型可比），另記含背景的 open_top1
+    bg = labels[-1] == BG
+    labels = labels[:-1] if bg else labels
     ref = np.load(args.model / "reference.npz")
     splits, _ = load_split(args.data, len(labels))
     mode = resample_mode(args.model)
@@ -134,7 +137,8 @@ def main(argv=None) -> dict:
     argmax_agree = float((onnx_logits.argmax(1) == ref["logits"].argmax(1)).mean())
 
     # 3. test 指標（用本機前處理的輸入，這才是上線時的路徑）
-    logits = run(sess, local_x)
+    full = run(sess, local_x)
+    logits = full[:, : len(labels)]
     pred = logits.argmax(1)
     hit1, hit5 = topk_hits(logits, y, 1), topk_hits(logits, y, 5)
     per_class = {}
@@ -161,6 +165,8 @@ def main(argv=None) -> dict:
         "top1": float(hit1.mean()), "top1_ci95": wilson(int(hit1.sum()), len(y)),
         "top5": float(hit5.mean()), "top5_ci95": wilson(int(hit5.sum()), len(y)),
         "provider": provider,
+        **({"open_top1": float((full.argmax(1) == y).mean()), "as_background": float((full.argmax(1) == len(labels)).mean())}
+           if bg else {}),
         "worst_classes": sorted(per_class.items(), key=lambda kv: (kv[1]["top1"], -kv[1]["n"]))[:15],
         "top_confusions": [{"true": t, "pred": p, "count": n} for (t, p), n in confusions],
     }
@@ -179,6 +185,8 @@ def main(argv=None) -> dict:
     lo, hi = report["top1_ci95"]
     print(f"test top-1 {report['top1']:.3f}  95% CI [{lo:.3f}, {hi:.3f}]   top-5 {report['top5']:.3f}"
           f"   （{report['n_test']} 支 / {report['n_test_classes']} 類）")
+    if bg:
+        print(f"含背景類 top-1 {report['open_top1']:.3f}   被判成背景 {report['as_background']:.1%}")
     if "latency" in report:
         lat = report["latency"]
         print(f"延遲 batch1  CUDA p50 {lat['cuda']['p50_ms']:.2f} ms  CPU p50 {lat['cpu']['p50_ms']:.2f} ms")

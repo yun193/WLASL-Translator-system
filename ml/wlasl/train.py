@@ -8,6 +8,9 @@
 --classes 決定拿多少類一起訓練，--eval-classes 決定挑模型與匯出時看前幾類：
 例如 --classes 2000 --eval-classes 100 是用 WLASL2000 全部資料學表示，但只對 WLASL100 負責。
 val 另外量「上線條件」：切詞器決定起訖、每 3 幀取 1 幀（約 10 fps）三種相位的 top-1 與相位間一致率。
+
+--bg 加一個背景類（不是詞，放在最後一類），給連續手語的滑動窗口用：合成的交界、半個詞、靜止片段，
+--bg-other 再混入詞彙表外的詞；--p-context 讓正樣本前後接上別的詞的片段。val 多記背景類相關指標。
 """
 
 from __future__ import annotations
@@ -26,14 +29,15 @@ from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
-from wlasl.augment import augment, choose_span
-from wlasl.dataset import labeled_span, load_raw, load_split, prepare
+from wlasl.augment import active_span, augment, background_sample, choose_span, with_context
+from wlasl.dataset import BG, labeled_span, load_raw, load_split, prepare
 from wlasl.model import SignTransformer
 from wlasl.segmenter import segment_spans
 
 
 class TrainSet(Dataset):
-    def __init__(self, raws, records, seed, mode, p_segmenter, subsample, noise=False):
+    def __init__(self, raws, records, seed, mode, p_segmenter, subsample, noise=False,
+                 bg=0.0, bg_label=None, p_context=0.0, others=None, p_other=0.0):
         self.raws, self.seed, self.mode = raws, seed, mode
         self.p_segmenter, self.subsample, self.noise = p_segmenter, subsample, noise
         self.labels = [r["label"] for r in records]
@@ -41,18 +45,40 @@ class TrainSet(Dataset):
         self.labeled = [labeled_span(r, len(s)) for r, s in zip(records, raws)]
         # 切詞器範圍只和關鍵點有關，先算好；fork 出來的 DataLoader worker 共用
         self.segmented = [segment_spans(s, f) for s, f in zip(raws, self.fps)] if p_segmenter > 0 else None
+        self.pool = make_pool(raws, records) if bg or p_context else None
+        self.n_bg, self.bg_label, self.p_context = round(len(raws) * bg), bg_label, p_context
+        self.others, self.p_other = others, p_other
         self.epoch = 0
 
     def __len__(self):
-        return len(self.raws)
+        return len(self.raws) + self.n_bg
 
     def __getitem__(self, i):
         rng = np.random.default_rng((self.seed, self.epoch, i))
-        seq = self.raws[i]
-        a, b = choose_span(len(seq), self.labeled[i], self.segmented[i] if self.segmented else [], self.fps[i],
-                           rng, p_segmenter=self.p_segmenter)
-        x = prepare(augment(seq[a:b], rng, subsample=self.subsample, noise=self.noise), mode=self.mode)
-        return torch.from_numpy(x), self.labels[i]
+        if i >= len(self.raws):
+            seq, label = background_sample(self.pool, rng, self.others, self.p_other), self.bg_label
+        elif self.p_context and rng.random() < self.p_context:
+            raw, span, fps = self.pool[i]
+            seq, label = with_context(raw, span, self.pool, rng, fps), self.labels[i]
+        else:
+            seq = self.raws[i]
+            a, b = choose_span(len(seq), self.labeled[i], self.segmented[i] if self.segmented else [], self.fps[i],
+                               rng, p_segmenter=self.p_segmenter)
+            seq, label = seq[a:b], self.labels[i]
+        x = prepare(augment(seq, rng, subsample=self.subsample, noise=self.noise), mode=self.mode)
+        return torch.from_numpy(x), label
+
+
+def make_pool(raws, records):
+    """[(原始序列, 真正在比的範圍, fps)]：背景樣本與上下文從這裡取片段。"""
+    return [(s, active_span(s, labeled_span(r, len(s))), r.get("fps") or 25.0) for s, r in zip(raws, records)]
+
+
+def bg_val_set(pool, others, p_other, mode, n=1000, seed=12345):
+    """固定的 val 背景樣本（不做增強），量背景類的召回。"""
+    rng = np.random.default_rng(seed)
+    return torch.from_numpy(np.stack([prepare(background_sample(pool, rng, others, p_other), mode=mode)
+                                      for _ in range(n)]))
 
 
 def live_inputs(raws, records, mode, stride=3) -> list[np.ndarray]:
@@ -69,9 +95,11 @@ def live_inputs(raws, records, mode, stride=3) -> list[np.ndarray]:
 
 
 @torch.no_grad()
-def predict(model, x, device, n_eval, bs=256):
+def predict(model, x, device, cols, bs=256):
+    """cols：前 N 類（int），或要取的類別編號清單（例如前 100 類＋背景類）。"""
     model.eval()
-    return torch.cat([model(x[i : i + bs].to(device)).float().cpu()[:, :n_eval] for i in range(0, len(x), bs)])
+    cols = slice(0, cols) if isinstance(cols, int) else cols
+    return torch.cat([model(x[i : i + bs].to(device)).float().cpu()[:, cols] for i in range(0, len(x), bs)])
 
 
 @torch.no_grad()
@@ -105,6 +133,9 @@ def main(argv=None):
     ap.add_argument("--p-segmenter", type=float, default=0.5, help="訓練時用切詞器起訖取代標註起訖的機率")
     ap.add_argument("--no-subsample", action="store_true", help="關掉時間抽幀增強")
     ap.add_argument("--noise", action="store_true", help="關鍵點雜訊增強（模擬鏡頭 JPEG：高斯、整手跳動、手掉幀）")
+    ap.add_argument("--bg", type=float, default=0.0, help="背景類樣本數 = 正樣本數 × bg；0 = 不加背景類")
+    ap.add_argument("--bg-other", type=float, default=0.0, help="背景樣本中改用詞彙表外的詞（--classes 之後的類）的比例")
+    ap.add_argument("--p-context", type=float, default=0.0, help="正樣本前後接上別的詞的片段的機率")
     args = ap.parse_args(argv)
 
     ddp = "WORLD_SIZE" in os.environ
@@ -126,8 +157,18 @@ def main(argv=None):
     splits, labels = load_split(args.data, args.classes or None)
     n_eval = min(args.eval_classes, len(labels))
     tr = splits["train"]
+    bg_label = len(labels) if args.bg else None
+    others = val_others = None
+    if args.bg_other:
+        every, _ = load_split(args.data)
+        out_tr = [r for r in every["train"] if r["label"] >= len(labels)]
+        out_va = [r for r in every["val"] if r["label"] >= len(labels)]
+        others = make_pool(load_raw(args.data, out_tr), out_tr)
+        val_others = make_pool(load_raw(args.data, out_va), out_va)
+    if args.bg:
+        labels = [*labels, BG]
     train_set = TrainSet(load_raw(args.data, tr), tr, args.seed, args.resample, args.p_segmenter,
-                         not args.no_subsample, args.noise)
+                         not args.no_subsample, args.noise, args.bg, bg_label, args.p_context, others, args.bg_other)
     sampler = DistributedSampler(train_set, world, rank, shuffle=True, seed=args.seed) if ddp else None
     loader = DataLoader(train_set, args.bs, shuffle=sampler is None, sampler=sampler, num_workers=2,
                         drop_last=True, persistent_workers=False)
@@ -137,6 +178,9 @@ def main(argv=None):
                                        for r, s in zip(va, val_raw)]))
     val_y = torch.tensor([r["label"] for r in va])
     live_x = [torch.from_numpy(x) for x in live_inputs(val_raw, va, args.resample)]
+    # 背景類：val 多看「前 n_eval 類＋背景」的 top-1、正樣本被當成背景的比例、合成背景的召回
+    open_cols = [*range(n_eval), bg_label] if args.bg else None
+    bg_x = bg_val_set(make_pool(val_raw, va), val_others, args.bg_other, args.resample) if args.bg else None
 
     model = SignTransformer(len(labels), d=args.d, layers=args.layers, ff=args.d * 2).to(device)
     n_params = sum(p.numel() for p in model.parameters())
@@ -174,16 +218,23 @@ def main(argv=None):
             live = [predict(model, x, device, n_eval).argmax(1) for x in live_x]
             m["live_top1"] = float(np.mean([(p == val_y).float().mean().item() for p in live]))
             m["live_agree"] = float(torch.stack(live).eq(live[0]).all(0).float().mean().item())
+            if args.bg:
+                op = predict(model, val_x, device, open_cols).argmax(1)
+                m["open_top1"] = (op == val_y).float().mean().item()
+                m["pos_as_bg"] = (op == n_eval).float().mean().item()
+                m["bg_recall"] = (predict(model, bg_x, device, open_cols).argmax(1) == n_eval).float().mean().item()
             m.update(epoch=epoch, train_loss=tot / n, lr=sched.get_last_lr()[0])
             history.append(m)
             if best is None or (m["top1"], -m["loss"]) > (best["top1"], -best["loss"]):
                 best = m
                 torch.save({"state_dict": model.state_dict(), "config": model.config, "labels": labels,
-                            "eval_classes": n_eval, "resample": args.resample,
+                            "eval_classes": n_eval, "resample": args.resample, "background": bool(args.bg),
                             "epoch": epoch, "val": m}, args.out / "best.pt")
             if epoch % 10 == 0 or epoch == args.epochs - 1:
                 print(f"ep {epoch:3d}  train {m['train_loss']:.3f}  val loss {m['loss']:.3f}  "
-                      f"top1 {m['top1']:.3f}  top5 {m['top5']:.3f}  live {m['live_top1']:.3f}/{m['live_agree']:.2f}  best {best['top1']:.3f}@{best['epoch']}  "
+                      f"top1 {m['top1']:.3f}  top5 {m['top5']:.3f}  live {m['live_top1']:.3f}/{m['live_agree']:.2f}  "
+                      + (f"open {m['open_top1']:.3f} pos→bg {m['pos_as_bg']:.3f} bg {m['bg_recall']:.3f}  " if args.bg else "")
+                      + f"best {best['top1']:.3f}@{best['epoch']}  "
                       f"{time.time() - t0:.0f}s", flush=True)
     if main_proc:
         (args.out / "history.json").write_text(json.dumps({"args": {k: str(v) for k, v in vars(args).items()},

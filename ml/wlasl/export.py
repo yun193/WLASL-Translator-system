@@ -35,16 +35,20 @@ def main(argv=None):
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     model = SignTransformer(**ck["config"])
     model.load_state_dict(ck["state_dict"])
-    n_eval = min(args.eval_classes or ck.get("eval_classes", ck["config"]["n_classes"]), ck["config"]["n_classes"])
+    # 背景類（不是詞）固定在最後一類，匯出時接在前 n_eval 類後面
+    bg = bool(ck.get("background"))
+    n_words = ck["config"]["n_classes"] - bg
+    n_eval = min(args.eval_classes or ck.get("eval_classes", n_words), n_words)
     mode = ck.get("resample", "nearest")
-    labels = ck["labels"][:n_eval]
-    if n_eval < ck["config"]["n_classes"]:
+    keep = [*range(n_eval), *([n_words] if bg else [])]
+    labels = [ck["labels"][i] for i in keep]
+    if len(keep) < ck["config"]["n_classes"]:
         old = model.head[1]
-        new = nn.Linear(old.in_features, n_eval)
-        new.weight.data.copy_(old.weight.data[:n_eval])
-        new.bias.data.copy_(old.bias.data[:n_eval])
+        new = nn.Linear(old.in_features, len(keep))
+        new.weight.data.copy_(old.weight.data[keep])
+        new.bias.data.copy_(old.bias.data[keep])
         model.head[1] = new
-        model.config["n_classes"] = n_eval
+        model.config["n_classes"] = len(keep)
     model.eval()
     seq_len = ck["config"]["seq_len"]
 
@@ -67,7 +71,7 @@ def main(argv=None):
                         video_ids=np.array([r["video_id"] for r in te]), labels=np.array([r["label"] for r in te]))
 
     metrics = {"best_epoch": ck["epoch"], "val": ck["val"], "seq_len": seq_len, "resample": mode,
-               "trained_classes": len(ck["labels"]), "exported_classes": n_eval, "opset": args.opset,
+               "trained_classes": n_words, "exported_classes": n_eval, "background": bg, "opset": args.opset,
                "torch": torch.__version__}
     try:
         import onnxruntime as ort

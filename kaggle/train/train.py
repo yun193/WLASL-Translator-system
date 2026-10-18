@@ -13,10 +13,14 @@ from pathlib import Path
 import torch
 
 # 重訓時只改這裡：每個設定佔一張 GPU 同時跑（傳給 wlasl.train 的超參數）
-# 2026-10-18：w2000（seed 0）已有結果；這輪比「加關鍵點雜訊」與「只換 seed」，後者量出單次訓練本身的起伏
+# 2026-10-18：w2000n（加關鍵點雜訊）為上線版；這輪比連續手語用的背景類（不是詞）：
+#   w2000bg 背景類＋正樣本帶上下文、w2000b 只有背景類（量上下文的貢獻）、w100o 只學 100 詞、詞彙表外的詞也算背景（開放集）
+# 設定比 GPU 多時兩組共用一張卡
 CONFIGS: dict[str, list[str]] = {
-    "w2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise"],
-    "w2000s1": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--seed", "1"],
+    "w2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3"],
+    "w2000b": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3"],
+    "w100o": ["--classes", "100", "--epochs", "200", "--warmup", "10", "--noise", "--bg", "1.0", "--bg-other", "0.5",
+              "--p-context", "0.3"],
 }
 EVAL_CLASSES = 100
 
