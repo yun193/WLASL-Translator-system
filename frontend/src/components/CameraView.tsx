@@ -49,7 +49,11 @@ export default function CameraView({ videoRef, frame, mirrored, live, notice }: 
             {live && frame && (
                 <>
                     <div className="absolute top-3 left-3 flex gap-2">
-                        {frame.active ? (
+                        {frame.active && frame.continuous ? (
+                            <span className="px-2.5 py-1 rounded-full bg-orange-600 text-white text-xs font-semibold flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-white animate-pulse" /> 連續比劃・逐詞偵測
+                            </span>
+                        ) : frame.active ? (
                             <span className="px-2.5 py-1 rounded-full bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-white animate-pulse" /> 比劃中
                             </span>

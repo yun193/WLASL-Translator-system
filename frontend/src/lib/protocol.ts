@@ -6,6 +6,8 @@ export interface FrameEvent {
     type: 'frame';
     hands: [boolean, boolean];
     active: boolean;
+    /** 連續比劃中（同一段超過 continuous_after 秒）：改用滑動窗口逐詞偵測 */
+    continuous?: boolean;
     mp_ms: number;
     /** 55 點，0～1 影像座標（未鏡像）；偵測不到為 null */
     points: Point[];
@@ -19,6 +21,10 @@ export interface SignEvent {
     top5: { gloss: string; prob: number }[];
     frames: number;
     infer_ms: number;
+    /** segment：手放下後整段分類；spot：連續比劃中由滑動窗口偵測 */
+    mode?: 'segment' | 'spot';
+    /** 背景類（不是詞）的機率；模型沒有背景類時為 0 */
+    background?: number;
     /** 段落起訖（秒；鏡頭為 performance.now 時間，影片檔為影片時間） */
     start: number;
     end: number;
@@ -32,6 +38,7 @@ export interface Health {
     labels: string[];
     mediapipe_model: boolean;
     segmenter: { rest: number; min: number; max: number };
+    spotting: { after: number; window: number; hits: number; threshold: number } | null;
     min_confidence: number;
 }
 

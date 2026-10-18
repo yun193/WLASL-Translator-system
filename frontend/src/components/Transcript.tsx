@@ -25,7 +25,7 @@ export default function Transcript({ signs, highlight = -1, showTime = false }: 
                     signs.map((s, i) => (
                         <span key={i}
                             className={`${s.confident ? 'text-white' : 'text-gray-500 italic'} ${i === highlight ? 'bg-blue-600/60 rounded px-1 -mx-1' : ''}`}
-                            title={`${s.gloss} ${pct(s.prob)}（${s.frames} 幀${showTime ? `，${s.start.toFixed(2)}–${s.end.toFixed(2)} 秒` : ''}）`}>
+                            title={`${s.gloss} ${pct(s.prob)}（${s.mode === 'spot' ? '逐詞偵測，' : ''}${s.frames} 幀${showTime ? `，${s.start.toFixed(2)}–${s.end.toFixed(2)} 秒` : ''}）`}>
                             {s.confident ? s.gloss : (
                                 <>?<span className="ml-1 text-sm not-italic">({s.top5.slice(0, 3).map((t) => t.gloss).join(' / ')})</span></>
                             )}

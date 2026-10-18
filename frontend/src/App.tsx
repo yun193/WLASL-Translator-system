@@ -122,6 +122,7 @@ function App() {
                             </span>
                         )}
                         {health && <span>手放下 {health.segmenter.rest} 秒就切成一個詞・單詞上限 {health.segmenter.max} 秒</span>}
+                        {health?.spotting && <span>連續比超過 {health.spotting.after} 秒改用逐詞偵測</span>}
                     </div>
                 </section>
 

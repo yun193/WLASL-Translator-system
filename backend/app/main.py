@@ -45,6 +45,8 @@ def health():
         "mediapipe_model": config.MP_MODEL.is_file(),
         "segmenter": {"rest": config.REST_SECONDS, "min": config.MIN_SIGN_SECONDS, "max": config.MAX_SIGN_SECONDS},
         "min_confidence": config.MIN_CONFIDENCE,
+        "spotting": {"after": config.CONTINUOUS_AFTER, "window": config.SPOT_WINDOW, "hits": config.SPOT_MIN_HITS,
+                     "threshold": config.SPOT_THRESHOLD} if config.SPOTTING else None,
     }
 
 
