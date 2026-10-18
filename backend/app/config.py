@@ -41,6 +41,15 @@ MAX_SIGN_SECONDS = 4.0
 # 0.5：w2000 test 上涵蓋 76%、其中正確 91%；鏡頭模式的相位翻盤幾乎都落在門檻以下
 MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", "0.5"))
 
+# 連續比劃（對話）：同一段比超過 CONTINUOUS_AFTER 秒就改用滑動窗口偵測，
+# 每 SPOT_HOP 秒分類最近 SPOT_WINDOW 秒，連續 SPOT_MIN_HITS 個窗口同一個詞、信心 ≥ SPOT_THRESHOLD 才輸出
+SPOTTING = os.environ.get("WLASL_SPOTTING", "1") == "1"
+CONTINUOUS_AFTER = 3.5  # WLASL test 的單字段落（含 pre-roll 與段尾靜止）中位 2.0 秒、超過 3.5 秒的只有 3%
+SPOT_WINDOW = 1.0
+SPOT_HOP = 0.25
+SPOT_MIN_HITS = 2
+SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.5"))
+
 # 即時紀錄檔（JSONL）
 LOG_DIR = Path(os.environ.get("WLASL_LOG_DIR") or ROOT_DIR / "logs")
 LOG_FILE = LOG_DIR / "log.jsonl"

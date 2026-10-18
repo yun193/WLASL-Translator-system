@@ -1,4 +1,4 @@
-"""一條鏡頭串流的狀態：影格 → MediaPipe → 切詞 → 分類。不依賴 WebSocket，方便單獨測試。
+"""一條鏡頭串流的狀態：影格 → MediaPipe → 解碼（切詞＋窗口偵測）→ 分類。不依賴 WebSocket，方便單獨測試。
 
 協定（WebSocket）：
   前端 → 後端  binary：前 8 bytes 為 float64（little-endian）擷取時間 ms，其後是 JPEG
@@ -17,6 +17,7 @@ from wlasl.landmarks import LEFT_HAND, RIGHT_HAND, LandmarkExtractor
 from . import config
 from .inference import Classifier
 from wlasl.segmenter import Segmenter
+from wlasl.spotter import Sign, SignDecoder, Spotter
 
 HEADER = struct.Struct("<d")
 
@@ -53,19 +54,14 @@ class SignSession:
     def __init__(self, classifier: Classifier, extractor: LandmarkExtractor | None = None):
         self.classifier = classifier
         self.extractor = extractor or LandmarkExtractor(config.MP_MODEL)
-        self.segmenter = self._new_segmenter()
+        self.decoder = new_decoder(classifier)
         self._last_ts = -1
-
-    @staticmethod
-    def _new_segmenter() -> Segmenter:
-        return Segmenter(rest=config.REST_SECONDS, pre_roll=config.PRE_ROLL_SECONDS,
-                         min_len=config.MIN_SIGN_SECONDS, max_len=config.MAX_SIGN_SECONDS)
 
     def close(self) -> None:
         self.extractor.close()
 
     def reset(self) -> None:
-        self.segmenter = self._new_segmenter()
+        self.decoder = new_decoder(self.classifier)
 
     def handle_frame(self, data: bytes) -> list[dict]:
         ts_ms, frame = decode_frame(data)
@@ -79,33 +75,44 @@ class SignSession:
         t0 = time.perf_counter()
         raw = self.extractor.process(frame, ts)
         mp_ms = (time.perf_counter() - t0) * 1000
-        segment = self.segmenter.push(ts / 1000, raw)
+        t0 = time.perf_counter()
+        signs = self.decoder.push(ts / 1000, raw)
+        infer_ms = (time.perf_counter() - t0) * 1000
         events = [{
             "type": "frame",
             "hands": [bool(~np.isnan(raw[LEFT_HAND, 0]).all()), bool(~np.isnan(raw[RIGHT_HAND, 0]).all())],
-            "active": self.segmenter.active,
+            "active": self.decoder.active,
+            "continuous": self.decoder.continuous,
             "mp_ms": round(mp_ms, 1),
             "points": _points(raw, frame.shape[1] / frame.shape[0]),
         }]
-        if segment is not None:
-            events.append(self._classify(segment))
-        return events
+        return events + [sign_event(s, infer_ms) for s in signs]
 
     def flush(self) -> list[dict]:
-        segment = self.segmenter.flush()
-        return [self._classify(segment)] if segment is not None else []
+        return [sign_event(s, 0.0) for s in self.decoder.flush()]
 
-    def _classify(self, segment: np.ndarray) -> dict:
-        t0 = time.perf_counter()
-        p = self.classifier.predict(segment)
-        return {
-            "type": "sign",
-            "gloss": p.gloss,
-            "prob": round(p.prob, 4),
-            "confident": p.prob >= config.MIN_CONFIDENCE,
-            "top5": [{"gloss": g, "prob": round(pr, 4)} for g, pr in p.top5],
-            "frames": int(len(segment)),
-            "start": round(self.segmenter.last_span[0], 3),
-            "end": round(self.segmenter.last_span[1], 3),
-            "infer_ms": round((time.perf_counter() - t0) * 1000, 2),
-        }
+
+def new_decoder(classifier: Classifier) -> SignDecoder:
+    seg = Segmenter(rest=config.REST_SECONDS, pre_roll=config.PRE_ROLL_SECONDS,
+                    min_len=config.MIN_SIGN_SECONDS, max_len=config.MAX_SIGN_SECONDS)
+    spot = (Spotter(window=config.SPOT_WINDOW, hop=config.SPOT_HOP, min_hits=config.SPOT_MIN_HITS,
+                    threshold=config.SPOT_THRESHOLD) if config.SPOTTING else None)
+    return SignDecoder(classifier.predict, seg, spot, continuous_after=config.CONTINUOUS_AFTER)
+
+
+def sign_event(s: Sign, infer_ms: float) -> dict:
+    p = s.prediction
+    return {
+        "type": "sign",
+        "gloss": p.gloss,
+        "prob": round(p.prob, 4),
+        # 窗口偵測輸出的詞已經過門檻；整段分類則看信心與是否被判成背景
+        "confident": p.prob >= config.MIN_CONFIDENCE and not p.is_background,
+        "top5": [{"gloss": g, "prob": round(pr, 4)} for g, pr in p.top5],
+        "background": round(p.background, 4),
+        "mode": s.mode,
+        "frames": int(s.frames),
+        "start": round(s.start, 3),
+        "end": round(s.end, 3),
+        "infer_ms": round(infer_ms, 2),
+    }

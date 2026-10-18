@@ -5,18 +5,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from wlasl.dataset import prepare, resample_mode
-
-
-@dataclass
-class Prediction:
-    gloss: str
-    prob: float
-    top5: list[tuple[str, float]]
+from wlasl.dataset import BG, prepare, resample_mode
+from wlasl.spotter import Prediction
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -33,7 +26,10 @@ class Classifier:
         # 模型很小，單執行緒就夠；把 CPU 留給 MediaPipe
         opts.intra_op_num_threads = 1
         self.session = ort.InferenceSession(str(model_dir / "model.onnx"), opts, providers=["CPUExecutionProvider"])
-        self.labels: list[str] = json.loads((model_dir / "labels.json").read_text(encoding="utf-8"))
+        labels: list[str] = json.loads((model_dir / "labels.json").read_text(encoding="utf-8"))
+        # 有背景類（不是詞）的模型：最後一類是背景，不列進詞彙與候選
+        self.has_background = labels[-1] == BG
+        self.labels = labels[:-1] if self.has_background else labels
         self.run_name = model_dir.name
         self.mode = resample_mode(model_dir)
 
@@ -41,6 +37,8 @@ class Classifier:
         """raw：(T, K, 3) 未正規化的關鍵點。"""
         x = prepare(raw, mode=self.mode)[None]
         probs = softmax(self.session.run(None, {"keypoints": x})[0][0])
-        order = np.argsort(-probs)[:5]
-        top5 = [(self.labels[i], float(probs[i])) for i in order]
-        return Prediction(gloss=top5[0][0], prob=top5[0][1], top5=top5)
+        bg = float(probs[-1]) if self.has_background else 0.0
+        words = probs[: len(self.labels)]
+        order = np.argsort(-words)[:5]
+        top5 = [(self.labels[i], float(words[i])) for i in order]
+        return Prediction(gloss=top5[0][0], prob=top5[0][1], top5=top5, background=bg)

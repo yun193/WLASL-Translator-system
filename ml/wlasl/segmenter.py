@@ -32,10 +32,16 @@ class Segmenter:
     _first_hand_t: float | None = None
     _last_hand_t: float | None = None
     last_span: tuple[float, float] = (0.0, 0.0)  # 最近一次切出的段落起訖秒數（含 pre-roll 與段尾靜止）
+    last_reason: str = ""  # 最近一次為什麼切：rest（手放下）／max（單詞上限）／flush
 
     @property
     def active(self) -> bool:
         return bool(self._frames)
+
+    @property
+    def started(self) -> float:
+        """目前這段的起點秒數（含 pre-roll）；沒在比劃時無意義。"""
+        return self._times[0] if self._times else float("inf")
 
     def push(self, t: float, frame: np.ndarray) -> np.ndarray | None:
         """餵一幀（t 為秒）；某個詞結束時回傳該段 (T, K, 3)，否則 None。"""
@@ -56,16 +62,17 @@ class Segmenter:
         if visible:
             self._last_hand_t = t
         if t - self._last_hand_t > self.rest:
-            return self._cut()
+            return self._cut("rest")
         if t - self._times[0] > self.max_len:
-            return self._cut()
+            return self._cut("max")
         return None
 
     def flush(self) -> np.ndarray | None:
-        return self._cut() if self.active else None
+        return self._cut("flush") if self.active else None
 
-    def _cut(self) -> np.ndarray | None:
+    def _cut(self, reason: str) -> np.ndarray | None:
         frames, span = self._frames, self._last_hand_t - self._first_hand_t
+        self.last_reason = reason
         self.last_span = (self._times[0], self._times[-1])
         self._frames, self._times, self._first_hand_t, self._last_hand_t = [], [], None, None
         # 用「手出現的時間跨度」判斷，段尾的靜止不算
