@@ -206,7 +206,7 @@ def norm_tokens(text: str) -> list[str]:
 def variants(w: str) -> list[str]:
     out = [w, IRREGULAR.get(w, w)]
     for suf, rep in (("ies", "y"), ("es", ""), ("s", ""), ("ing", ""), ("ing", "e"), ("ed", ""), ("ed", "e"),
-                     ("d", ""), ("ly", ""), ("er", ""), ("est", "")):
+                     ("ly", ""), ("er", ""), ("est", "")):
         if w.endswith(suf) and len(w) - len(suf) >= 2:
             stem = w[: len(w) - len(suf)] + rep
             out.append(stem)
