@@ -171,7 +171,7 @@ def main():
     winperf.disable_power_throttling()
     with urllib.request.urlopen(f"{args.url}/api/health", timeout=10) as r:
         health = json.loads(r.read())
-    model_dir = ROOT / "models" / health["model"]
+    model_dir = ROOT / "models" / health["model"].split("+")[0]  # 雙模型平均時名稱是 a+b，參考值和 test 資料都在第一個模型底下
     clf = Classifier(model_dir)
     if clf.labels != health["labels"]:
         sys.exit(f"後端的模型 {health['model']} 和 {model_dir} 的類別不一致")
@@ -279,6 +279,7 @@ def main():
                 "嚴格正確（各相位）": [pct(ok[k], N) for k in keys],
                 "切出非 1 個詞": sum(len(r["stream"][k]) != 1 for r in rows for k in keys),
                 "相位間結果一致": pct(same, N),
+                "高信心時相位一致": pct(sum(len({tuple(r["stream"][k]) for k in keys}) == 1 for r in conf), len(conf)),
                 "和影片檔模式相同": pct(sum(r["stream"][k] == r["server"] for r in rows for k in keys), N * len(keys)),
             }
 

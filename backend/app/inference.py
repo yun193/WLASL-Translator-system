@@ -33,12 +33,30 @@ class Classifier:
         self.run_name = model_dir.name
         self.mode = resample_mode(model_dir)
 
+    def logits(self, raw: np.ndarray) -> np.ndarray:
+        return self.session.run(None, {"keypoints": prepare(raw, mode=self.mode)[None]})[0][0]
+
     def predict(self, raw: np.ndarray) -> Prediction:
         """raw：(T, K, 3) 未正規化的關鍵點。"""
-        x = prepare(raw, mode=self.mode)[None]
-        probs = softmax(self.session.run(None, {"keypoints": x})[0][0])
+        probs = softmax(self.logits(raw))
         bg = float(probs[-1]) if self.has_background else 0.0
-        words = probs[: len(self.labels)]
-        order = np.argsort(-words)[:5]
-        top5 = [(self.labels[i], float(words[i])) for i in order]
-        return Prediction(gloss=top5[0][0], prob=top5[0][1], top5=top5, background=bg)
+        return _prediction(self.labels, probs[: len(self.labels)], bg)
+
+
+class Ensemble:
+    """兩個獨立訓練的模型平均詞機率：模型沒把握時比較不會一起錯，詞彙表外的詞才不容易過信心門檻（docs/open-set/report.md）。"""
+
+    def __init__(self, *classifiers: Classifier):
+        self.classifiers = classifiers
+        self.labels = classifiers[0].labels
+        self.run_name = "+".join(c.run_name for c in classifiers)
+
+    def predict(self, raw: np.ndarray) -> Prediction:
+        n = len(self.labels)
+        return _prediction(self.labels, np.mean([softmax(c.logits(raw)[:n]) for c in self.classifiers], axis=0))
+
+
+def _prediction(labels: list[str], words: np.ndarray, background: float = 0.0) -> Prediction:
+    order = np.argsort(-words)[:5]
+    top5 = [(labels[i], float(words[i])) for i in order]
+    return Prediction(gloss=top5[0][0], prob=top5[0][1], top5=top5, background=background)

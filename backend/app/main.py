@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import applog, config, security
 from .analyze import VideoError, analyze_video
-from .inference import Classifier
+from .inference import Classifier, Ensemble
 from .stream import FrameError, SignSession
 
 app = FastAPI(title="WLASL 即時手語辨識", docs_url=None, redoc_url=None, openapi_url=None)
@@ -22,6 +22,8 @@ if classifier and config.SPOT_MODEL_DIR and config.SPOT_MODEL_DIR != config.MODE
     spot_classifier = Classifier(config.SPOT_MODEL_DIR)
     if spot_classifier.labels != classifier.labels:  # 兩個模型的詞彙不同就不能混用
         spot_classifier = None
+    elif config.ENSEMBLE:
+        classifier = Ensemble(classifier, spot_classifier)  # 整段分類用兩個模型平均，減少詞彙表外的亂認
 _sessions = asyncio.Semaphore(config.MAX_SESSIONS)
 applog.event("startup", port=config.PORT, dev=config.DEV, model=classifier.run_name if classifier else None)
 

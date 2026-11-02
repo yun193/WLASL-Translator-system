@@ -30,6 +30,8 @@ MODEL_DIR = Path(os.environ["WLASL_MODEL_DIR"]) if os.environ.get("WLASL_MODEL_D
 # 2026-10-19 spotbench：單字整段分類 w2000n 較好（第一個詞正確 70% vs 64%），連續偵測 w2000bg 較好（合成召回 59% vs 51%，誤報相同）
 SPOT_MODEL_DIR = (Path(os.environ["WLASL_SPOT_MODEL_DIR"]) if os.environ.get("WLASL_SPOT_MODEL_DIR")
                   else _latest_background_model_dir() or MODEL_DIR)
+# 整段分類用兩個模型（MODEL_DIR＋SPOT_MODEL_DIR）平均；設 0 只用 MODEL_DIR
+ENSEMBLE = os.environ.get("WLASL_ENSEMBLE", "1") != "0"
 # MediaPipe Holistic 模型檔，不存在時第一次啟動會自動下載
 MP_MODEL = ROOT_DIR / "data" / "models" / "holistic_landmarker.task"
 
