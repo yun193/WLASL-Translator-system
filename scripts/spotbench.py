@@ -148,8 +148,11 @@ def podcast(classify, raw, fps, occ, p, part):
     a, b = int(lo * fps), int(hi * fps)
     ev = [((s.start + s.end) / 2 + lo, s.prediction.gloss) for s in decode(classify, raw[a:b], fps, p)]
     o = [x for x in occ if lo <= x["t"] < hi]
-    prec, prec_base = lv.with_baseline(lv.precision, ev, o, dur, 4, 2)
-    rec, rec_base = lv.with_baseline(lv.recall, ev, o, dur, 4, 2)
+    # 機率基準只在這一半內平移：平移到另一半的事件沒有逐字稿可對，基準會被低估
+    rel = [(t - lo, g) for t, g in ev]
+    orel = [{**x, "t": x["t"] - lo} for x in o]
+    prec, prec_base = lv.with_baseline(lv.precision, rel, orel, hi - lo, 4, 2)
+    rec, rec_base = lv.with_baseline(lv.recall, rel, orel, hi - lo, 4, 2)
     return {"outputs": len(ev), "outputs_per_min": len(ev) / ((hi - lo) / 60), "precision": prec,
             "precision_base": prec_base, "recall": rec, "recall_base": rec_base, "occurrences": len(o)}
 
