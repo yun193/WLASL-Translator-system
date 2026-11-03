@@ -23,7 +23,9 @@ if classifier and config.SPOT_MODEL_DIR and config.SPOT_MODEL_DIR != config.MODE
     if spot_classifier.labels != classifier.labels:  # 兩個模型的詞彙不同就不能混用
         spot_classifier = None
     elif config.ENSEMBLE:
-        classifier = Ensemble(classifier, spot_classifier)  # 整段分類用兩個模型平均，減少詞彙表外的亂認
+        # 整段分類和窗口偵測都用兩個模型平均，減少亂認；窗口偵測另外看背景類
+        classifier, spot_classifier = (Ensemble(classifier, spot_classifier),
+                                       Ensemble(classifier, spot_classifier, use_background=True))
 _sessions = asyncio.Semaphore(config.MAX_SESSIONS)
 applog.event("startup", port=config.PORT, dev=config.DEV, model=classifier.run_name if classifier else None)
 

@@ -319,7 +319,7 @@ def cmd_streams(args):
     spot = Classifier(ROOT / "models" / "20261019-w2000bg")
     sb.SPOT["classify"] = sb.Cached(spot)
     p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS,
-         "th": config.SPOT_THRESHOLD, "after": config.CONTINUOUS_AFTER, "spot": True}
+         "th": config.SPOT_THRESHOLD_SINGLE, "after": config.CONTINUOUS_AFTER, "spot": True}
     shown = sb.decode(sb.Cached(clf), raw, fps, p)
     online = [(float((s.start + s.end) / 2), s.prediction.gloss) for s in shown]
 

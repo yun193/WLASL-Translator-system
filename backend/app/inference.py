@@ -44,16 +44,22 @@ class Classifier:
 
 
 class Ensemble:
-    """兩個獨立訓練的模型平均詞機率：模型沒把握時比較不會一起錯，詞彙表外的詞才不容易過信心門檻（docs/open-set/report.md）。"""
+    """兩個獨立訓練的模型平均詞機率：模型沒把握時比較不會一起錯，詞彙表外的詞才不容易過信心門檻（docs/open-set/report.md）。
 
-    def __init__(self, *classifiers: Classifier):
+    use_background：窗口偵測用，另外回報最後一個模型的背景類機率（docs/spot-gate/report.md）。
+    """
+
+    def __init__(self, *classifiers: Classifier, use_background: bool = False):
         self.classifiers = classifiers
         self.labels = classifiers[0].labels
         self.run_name = "+".join(c.run_name for c in classifiers)
+        self.use_background = use_background
 
     def predict(self, raw: np.ndarray) -> Prediction:
         n = len(self.labels)
-        return _prediction(self.labels, np.mean([softmax(c.logits(raw)[:n]) for c in self.classifiers], axis=0))
+        logits = [c.logits(raw) for c in self.classifiers]
+        words = np.mean([softmax(x[:n]) for x in logits], axis=0)
+        return _prediction(self.labels, words, float(softmax(logits[-1])[-1]) if self.use_background else 0.0)
 
 
 def _prediction(labels: list[str], words: np.ndarray, background: float = 0.0) -> Prediction:

@@ -235,7 +235,7 @@ def decode_online(raw, fps, clf, spot):
     from app import config
 
     sb.SPOT["classify"] = sb.Cached(spot)
-    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD,
+    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD_SINGLE,
          "after": config.CONTINUOUS_AFTER, "spot": True}
     return [(float((s.start + s.end) / 2), s.prediction.gloss) for s in sb.decode(sb.Cached(clf), raw, fps, p)]
 

@@ -134,7 +134,7 @@ def main():
     full = Full(yb.MODEL_2000, yb.SPOT_MODEL)
     classify = sb.Cached(full)
     sb.SPOT["classify"] = sb.Cached(full.second)
-    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD,
+    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD_SINGLE,
          "after": config.CONTINUOUS_AFTER, "spot": True}
     vocab = full.clf.labels[:K]
     inv, oov, labels, _ = sb.load_test(vocab)
@@ -180,7 +180,7 @@ def verify():
     winperf.disable_power_throttling()
     single, spot = Classifier(yb.MODEL), Classifier(yb.SPOT_MODEL)
     sb.SPOT["classify"] = sb.Cached(spot)
-    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD,
+    p = {"window": config.SPOT_WINDOW, "hop": config.SPOT_HOP, "hits": config.SPOT_MIN_HITS, "th": config.SPOT_THRESHOLD_SINGLE,
          "after": config.CONTINUOUS_AFTER, "spot": True}
     inv, oov, labels, _ = sb.load_test(single.labels)
     keep = (lambda _: 1.0, False)

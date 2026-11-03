@@ -26,5 +26,14 @@ def test_averages_word_probs_and_ignores_background_class():
     assert not p.is_background
 
 
+def test_use_background_reports_last_model_background_without_changing_words():
+    first, second = [3.0, 1.0, 0.0], [0.0, 2.0, 1.0, 9.0]
+    plain = Ensemble(Fake("x", first), Fake("y", second)).predict(np.zeros((4, 55, 3)))
+    p = Ensemble(Fake("x", first), Fake("y", second), use_background=True).predict(np.zeros((4, 55, 3)))
+    assert p.prob == pytest.approx(plain.prob)
+    assert p.background == pytest.approx(softmax(np.array(second))[-1])
+    assert p.is_background
+
+
 def test_run_name_lists_both_models():
     assert Ensemble(Fake("x", [0, 0, 0]), Fake("y", [0, 0, 0])).run_name == "x+y"

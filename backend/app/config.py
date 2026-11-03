@@ -62,7 +62,9 @@ CONTINUOUS_AFTER = 3.5  # WLASL test 的單字段落（含 pre-roll 與段尾靜
 SPOT_WINDOW = 1.3
 SPOT_HOP = 0.25
 SPOT_MIN_HITS = 1
-SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.7"))
+SPOT_THRESHOLD_SINGLE = 0.7
+# 雙模型平均：scripts/spotgate.py 在合成連續的偶數半，誤報降到單模型一半時的門檻
+SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.78" if ENSEMBLE else SPOT_THRESHOLD_SINGLE))
 
 # 即時紀錄檔（JSONL）
 LOG_DIR = Path(os.environ.get("WLASL_LOG_DIR") or ROOT_DIR / "logs")
