@@ -64,7 +64,7 @@ def load_split(data_dir: str | Path, classes: int | None = None) -> tuple[dict[s
     splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
     for r in index:
         if r["label"] < len(labels):
-            splits[r["subset"]].append(r)
+            splits.setdefault(r["subset"], []).append(r)  # 換人切分另有 test_seen（見 signers.py）
     return splits, labels
 
 

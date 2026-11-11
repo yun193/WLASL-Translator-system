@@ -1,0 +1,14 @@
+{
+  "id": "yun193/wlasl-signer-cv",
+  "title": "wlasl-signer-cv",
+  "code_file": "signer_cv.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": ["yun193/wlasl-code"],
+  "competition_sources": [],
+  "kernel_sources": ["yun193/wlasl-prep-0", "yun193/wlasl-prep-1", "yun193/wlasl-prep-2", "yun193/wlasl-prep-3"]
+}
