@@ -13,15 +13,15 @@ from pathlib import Path
 import torch
 
 # 重訓時只改這裡：每個設定佔一張 GPU 同時跑（傳給 wlasl.train 的超參數）
-# 2026-10-18：w2000n（加關鍵點雜訊）為上線版；這輪比連續手語用的背景類（不是詞）：
-#   w2000bg 背景類＋正樣本帶上下文、w2000b 只有背景類（量上下文的貢獻）、w100o 只學 100 詞、詞彙表外的詞也算背景（開放集）
+# 2026-11-12：上線雙模型（w2000n＋w2000bg）兩個成員都加入 ASL Citizen train+val（WLASL2000 同名 1,159 詞、41 人），
+#   設定和原本完全相同，只多了資料；驗收看本機 ASL Citizen test（11 位沒看過的人）與 WLASL test
 # 設定比 GPU 多時兩組共用一張卡
 CONFIGS: dict[str, list[str]] = {
-    "w2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3"],
-    "w2000b": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3"],
-    "w100o": ["--classes", "100", "--epochs", "200", "--warmup", "10", "--noise", "--bg", "1.0", "--bg-other", "0.5",
-              "--p-context", "0.3"],
+    "a2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise"],
+    "a2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3"],
 }
+# 掛載的前處理產出裡要合併哪些（aslc-prep-* 只限非商業研究，訓練出來的模型不公開、不商用）
+SOURCES = ("wlasl-prep-", "aslc-prep-")
 EVAL_CLASSES = 100
 
 whl = glob.glob("/kaggle/input/**/wlasl-*.whl", recursive=True)
@@ -35,7 +35,7 @@ data = Path("/tmp/data")
 index, labels = [], None
 for idx in sorted(glob.glob("/kaggle/input/**/index.json", recursive=True)):
     src = Path(idx).parent
-    if not (src / "keypoints").is_dir():
+    if not (src / "keypoints").is_dir() or not any(k in str(src) for k in SOURCES):
         continue
     part = json.loads(Path(idx).read_text())
     index += part
@@ -48,7 +48,7 @@ for idx in sorted(glob.glob("/kaggle/input/**/index.json", recursive=True)):
 assert len({r["video_id"] for r in index}) == len(index), "分片之間有重複的影片"
 (data / "index.json").write_text(json.dumps(index))
 (data / "labels.json").write_text(json.dumps(labels, ensure_ascii=False), encoding="utf-8")
-print(f"合併 {len(index)} 支、{len(labels)} 類", flush=True)
+print(f"合併 {len(index)} 支、{len(labels)} 類；ASL Citizen {sum(r['video_id'].startswith('aslc-') for r in index)} 支", flush=True)
 
 out = Path("/kaggle/working")
 test = out / "testdata"

@@ -10,5 +10,6 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": ["yun193/wlasl-code"],
   "competition_sources": [],
-  "kernel_sources": ["yun193/wlasl-prep-0", "yun193/wlasl-prep-1", "yun193/wlasl-prep-2", "yun193/wlasl-prep-3"]
+  "kernel_sources": ["yun193/wlasl-prep-0", "yun193/wlasl-prep-1", "yun193/wlasl-prep-2", "yun193/wlasl-prep-3",
+                     "yun193/aslc-prep-0", "yun193/aslc-prep-1", "yun193/aslc-prep-2", "yun193/aslc-prep-3", "yun193/aslc-prep-4", "yun193/aslc-prep-5"]
 }
