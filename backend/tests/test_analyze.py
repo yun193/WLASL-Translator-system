@@ -43,7 +43,10 @@ def test_analyze_matches_offline_reference(classifier):
 
     ref = np.load(config.MODEL_DIR / "reference.npz")
     same = one_word = total = 0
-    for vid, logits in list(zip(ref["video_ids"], ref["logits"]))[:10]:
+    refs = [r for r in zip(ref["video_ids"], ref["logits"]) if (VIDEOS / f"{r[0]}.mp4").exists()][:10]
+    if len(refs) < 10:  # 2000 詞模型的參考影片多半不在本機
+        pytest.skip("本機的參考影片不足 10 支")
+    for vid, logits in refs:
         signs = analyze_video(VIDEOS / f"{vid}.mp4", classifier)["signs"]
         total += 1
         one_word += len(signs) == 1

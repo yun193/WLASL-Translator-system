@@ -40,7 +40,11 @@ def test_classifier_matches_reference_predictions():
 
     clf = Classifier(config.MODEL_DIR)
     ref = np.load(config.MODEL_DIR / "reference.npz")
-    for vid, logits in list(zip(ref["video_ids"], ref["logits"]))[:20]:
+    # 參考集是匯出時的 test 前段；本機只留了 100 詞那批，2000 詞模型的參考影片多半不在本機
+    pairs = [(v, lg) for v, lg in zip(ref["video_ids"], ref["logits"]) if (PRE / "keypoints" / f"{v}.npy").exists()][:20]
+    if len(pairs) < 5:
+        pytest.skip("本機的參考關鍵點不足 5 支")
+    for vid, logits in pairs:
         raw = np.load(PRE / "keypoints" / f"{vid}.npy")
         assert clf.predict(raw).gloss == clf.labels[int(logits.argmax())]
 
@@ -61,7 +65,7 @@ class TestWebSocket:
 
     def test_health(self, client):
         r = client.get("/api/health")
-        assert r.status_code == 200 and r.json()["classes"] == len(r.json()["labels"]) == 100
+        assert r.status_code == 200 and r.json()["classes"] == len(r.json()["labels"]) in (100, 2000)
 
     def test_http_rejects_foreign_host(self, client):
         r = client.get("/api/health", headers={"host": "evil.example:8766"})
@@ -110,7 +114,10 @@ def test_session_end_to_end_on_real_video():
     clf = Classifier(config.MODEL_DIR)
     ref = np.load(config.MODEL_DIR / "reference.npz")
     hits = total = 0
-    for vid, label, logits in list(zip(ref["video_ids"], ref["labels"], ref["logits"]))[:10]:
+    refs = [r for r in zip(ref["video_ids"], ref["labels"], ref["logits"]) if (VIDEOS / f"{r[0]}.mp4").exists()][:10]
+    if len(refs) < 5:
+        pytest.skip("本機的參考影片不足 5 支")
+    for vid, label, logits in refs:
         cap = cv2.VideoCapture(str(VIDEOS / f"{vid}.mp4"))
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         session, signs, i = SignSession(clf), [], 0
