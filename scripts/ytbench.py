@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -40,9 +41,10 @@ TALK_VIDEOS = {
     "9BJ9to5o2cs": "Rogan Shannon（vlog）",
     "HR6ZPhkxJ3c": "Sign Duo（雙人對話）",
 }
-MODEL = ROOT / "models" / "20261018-w2000n"
+# BENCH_MODEL／BENCH_SPOT_MODEL：換別的模型跑同一套評估（spotgate verify 等腳本共用這裡）
+MODEL = Path(os.environ.get("BENCH_MODEL", ROOT / "models" / "20261018-w2000n"))
 MODEL_2000 = ROOT / "models" / "20261018-w2000n-2000"
-SPOT_MODEL = ROOT / "models" / "20261019-w2000bg"
+SPOT_MODEL = Path(os.environ.get("BENCH_SPOT_MODEL", ROOT / "models" / "20261019-w2000bg"))
 SHORT_CHAPTER = 6.0
 SKIP = re.compile(r"^(\*|<|intro|outro|review|teaching|asl structure|tornado)", re.I)
 

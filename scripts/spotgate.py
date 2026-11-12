@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import sys
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 CACHE = ROOT / "data" / "spot_cache"
-OUT = ROOT / "docs" / "spot-gate" / "metrics.json"
+OUT = Path(os.environ.get("BENCH_OUT", ROOT / "docs" / "spot-gate")) / "metrics.json"  # BENCH_OUT：另放，不蓋掉現行結果
 K = 100
 HITS = (1, 2, 3)
 FALSE_TARGETS = (1.0, 0.75, 0.5, 0.25)  # 相對現行規則在偶數半的每分鐘誤報
@@ -376,6 +377,7 @@ def verify():
         x["talk"] = {"outputs": outs, "hits": hits}
         res[name] = x
         print(name, json.dumps(x, ensure_ascii=False), flush=True)
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     (OUT.parent / "verify.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
 
 

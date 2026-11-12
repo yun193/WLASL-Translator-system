@@ -77,7 +77,40 @@ def selected(labels: list[str]) -> list[dict]:
     return [r for r in rows if r["Gloss"].lower() in vocab]
 
 
-def cmd_fetch():
+WLASL2000 = ROOT / "data" / "kaggle_out" / "wlasl-prep-0" / "labels.json"
+OOV_PER_GROUP = 300
+
+
+def oov_rows(vocab100: list[str]) -> dict[str, list[dict]]:
+    """ASL Citizen test 裡詞彙表外的影片，分兩組各抽 OOV_PER_GROUP 支（固定種子，每個詞最多 1 支）：
+    in2000：WLASL2000 有、但不在 100 詞內（模型訓練時學過，是別的類）
+    unseen：WLASL2000 完全沒有（去掉變體編號後也沒有），模型從沒看過
+    變體詞（DRINK1 這類去掉數字後是 100 詞之一）其實是詞彙表內的詞，排除。"""
+    import random
+    import re
+
+    v100, v2000 = set(vocab100), set(json.loads(WLASL2000.read_text(encoding="utf-8")))
+    base = lambda g: re.sub(r"\d+$", "", g.lower())  # noqa: E731
+    rows = list(csv.DictReader(open(DATA / "splits" / "test.csv", encoding="utf-8")))
+    groups: dict[str, dict[str, list[dict]]] = {"in2000": defaultdict(list), "unseen": defaultdict(list)}
+    for r in rows:
+        g = r["Gloss"].lower()
+        if g in v100 or base(g) in v100:
+            continue
+        if g in v2000:
+            groups["in2000"][g].append(r)
+        elif base(g) not in v2000:
+            groups["unseen"][g].append(r)
+    rng = random.Random(0)
+    out = {}
+    for name, by in groups.items():
+        words = sorted(by)
+        rng.shuffle(words)
+        out[name] = [rng.choice(by[w]) for w in words[:OOV_PER_GROUP]]
+    return out
+
+
+def cmd_fetch(rows=None):
     import longvideo as lv
 
     labels = json.loads((MODEL / "labels.json").read_text(encoding="utf-8"))
@@ -89,7 +122,7 @@ def cmd_fetch():
             p.write_bytes(z.read(f"ASL_Citizen/splits/{sp}.csv"))
     if not (DATA / "use.txt").exists():
         (DATA / "use.txt").write_bytes(z.read("ASL_Citizen/use.txt"))
-    rows = selected(labels)
+    rows = rows if rows is not None else selected(labels)
     print(f"{len(rows)} 支、{len({r['Gloss'] for r in rows})} 詞、{len({r['Participant ID'] for r in rows})} 位手語者", flush=True)
     vids, kps = DATA / "videos", DATA / "kp"
     vids.mkdir(exist_ok=True)
@@ -218,11 +251,47 @@ def cmd_eval():
     print("常見混淆", res["confusions"][main][:10])
 
 
+PAIRS = {"現行 w2000n＋w2000bg": ("20261018-w2000n", "20261019-w2000bg"),
+         "a2000n＋a2000bg": ("20261113-a2000n", "20261113-a2000bg")}
+
+
+def cmd_oov():
+    """詞彙表外的亂認：新使用者比了不在 100 詞內的詞，上線設定會不會報出一個詞。"""
+    import spotbench as sb
+    from app import config, winperf
+    from app.inference import Classifier, Ensemble
+
+    winperf.disable_power_throttling()
+    cfg, th = online_cfg(), config.MIN_CONFIDENCE
+    res = {}
+    for name, (n, bg) in PAIRS.items():
+        single, spot = Classifier(ROOT / "models" / n), Classifier(ROOT / "models" / bg)
+        groups = oov_rows(single.labels)
+        sb.SPOT["classify"] = sb.Cached(Ensemble(single, spot, use_background=True))
+        clf = sb.Cached(Ensemble(single, spot))
+        res[name] = {}
+        for g, rows in groups.items():
+            conf = shown = 0
+            words = Counter()
+            for r in rows:
+                d = np.load(DATA / "kp" / f"{Path(r['Video file']).stem}.npz")
+                raw, fps = d["raw"], float(d["fps"])
+                conf += clf.predict(raw).prob >= th
+                out = [s.prediction.gloss for s in sb.decode(clf, raw, fps, cfg)]
+                shown += bool(out)
+                words.update(out[:1])
+            res[name][g] = {"whole_confident": rate(conf, len(rows)), "online_false": rate(shown, len(rows)),
+                            "top_words": words.most_common(8)}
+            print(name, g, {k: v for k, v in res[name][g].items()}, flush=True)
+    res["videos"] = {g: len(v) for g, v in oov_rows(single.labels).items()}
+    (OUT / "oov.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 if __name__ == "__main__":
     import argparse
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["fetch", "eval"])
+    ap.add_argument("cmd", choices=["fetch", "eval", "fetch-oov", "oov"])
     ap.add_argument("--model", type=Path, default=MODEL, help="雙模型的單一成員（整段分類對照）")
     ap.add_argument("--spot", type=Path, default=SPOT_MODEL, help="雙模型的背景類成員")
     ap.add_argument("--out", type=Path, default=OUT, help="metrics.json 輸出資料夾；per_video.json 放 data/aslcitizen/<同名>/")
@@ -231,4 +300,6 @@ if __name__ == "__main__":
     if a.out.resolve() != OUT:  # 新模型的評估另放，不蓋掉現行模型的結果
         OUT = a.out.resolve()
         DATA_OUT = DATA / OUT.name
-    {"fetch": cmd_fetch, "eval": cmd_eval}[a.cmd]()
+    labels100 = lambda: json.loads((MODEL / "labels.json").read_text(encoding="utf-8"))  # noqa: E731
+    {"fetch": cmd_fetch, "eval": cmd_eval, "oov": cmd_oov,
+     "fetch-oov": lambda: cmd_fetch([r for g in oov_rows(labels100()).values() for r in g])}[a.cmd]()
