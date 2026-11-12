@@ -1,0 +1,13 @@
+{
+  "id": "yun193/aslct-prep",
+  "title": "aslct-prep",
+  "code_file": "aslct_prep.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["yun193/wlasl-code"],
+  "competition_sources": [],
+  "kernel_sources": ["yun193/wlasl-prep-0"]
+}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 
-/** 模型認得的詞：WLASL100 只有 100 個，實測前先挑清單裡的詞 */
+/** 模型認得的詞（上線版 2000 詞），實測前先挑清單裡的詞 */
 export default function Vocabulary({ labels }: { labels: string[] }) {
     const [query, setQuery] = useState('');
     const shown = useMemo(() => {

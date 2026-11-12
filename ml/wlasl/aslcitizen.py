@@ -4,7 +4,7 @@
 影片不整包下載：用 HTTP Range 讀官方 zip 的目錄，每支影片只抓自己那一段，擷取完就刪。
 授權（Microsoft Research License）只限非商業研究、不得散布：產出只放私人 kernel 輸出，不上傳成 Dataset。
 
-index 每筆：video_id = "aslc-<檔名>"、subset 一律 "train"（ASL Citizen test 留給本機驗收，不收）、
+index 每筆：video_id = "aslc-<檔名>"、subset 預設 "train"（--splits test --subset aslc_test 另抽驗收用的 test，訓練不會讀到）、
 start/end = 1/-1（整支都是這個詞）、signer、aslc_split（原本是 train 還是 val）。
 
 用法：python -m wlasl.aslcitizen --labels <WLASL labels.json> --out <輸出> --workers 4 [--shard 0 --shards 6]
@@ -90,15 +90,15 @@ def video_id(name: str) -> str:
     return "aslc-" + Path(name).stem.replace(" ", "_")
 
 
-def build_manifest(splits: dict[str, list[dict]], labels: list[str]) -> list[dict]:
+def build_manifest(splits: dict[str, list[dict]], labels: list[str], use=SPLITS, subset: str = "train") -> list[dict]:
     """ASL Citizen 切分 CSV 的列 → index 項目（label 用 WLASL 的編號）。"""
     pos = {g: i for i, g in enumerate(labels)}
     items = []
-    for sp in SPLITS:
+    for sp in use:
         for r in splits[sp]:
             g = r["Gloss"].lower()
             if g in pos:
-                items.append({"video_id": video_id(r["Video file"]), "label": pos[g], "gloss": g, "subset": "train",
+                items.append({"video_id": video_id(r["Video file"]), "label": pos[g], "gloss": g, "subset": subset,
                               "start": 1, "end": -1, "signer": r["Participant ID"], "aslc_split": sp,
                               "file": r["Video file"]})
     return sorted(items, key=lambda it: it["video_id"])
@@ -127,16 +127,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--shards", type=int, default=1)
     ap.add_argument("--url", default=URL)
+    ap.add_argument("--splits", default=",".join(SPLITS), help="要抽哪些官方切分，逗號分隔")
+    ap.add_argument("--subset", default="train", help="寫進 index 的 subset")
     args = ap.parse_args(argv)
 
     labels = json.loads(args.labels.read_text(encoding="utf-8"))
     z = zipfile.ZipFile(io.BufferedReader(HttpFile(args.url), 1 << 20))
+    use = tuple(args.splits.split(","))
     splits = {sp: list(csv.DictReader(io.TextIOWrapper(z.open(f"ASL_Citizen/splits/{sp}.csv"), encoding="utf-8")))
-              for sp in SPLITS}
+              for sp in use}
     entries = {Path(i.filename).name: {"offset": i.header_offset, "csize": i.compress_size, "size": i.file_size,
                                        "method": i.compress_type}
                for i in z.infolist() if i.filename.startswith("ASL_Citizen/videos/")}
-    items = build_manifest(splits, labels)[args.shard :: args.shards]
+    items = build_manifest(splits, labels, use, args.subset)[args.shard :: args.shards]
     if args.limit:
         items = items[: args.limit]
 

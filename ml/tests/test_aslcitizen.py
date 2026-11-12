@@ -27,3 +27,9 @@ def test_fetch_reads_member_by_offset(monkeypatch):
     for i in zipfile.ZipFile(io.BytesIO(raw)).infolist():
         e = {"offset": i.header_offset, "csize": i.compress_size, "size": i.file_size, "method": i.compress_type}
         assert ac.fetch("u", e) == (b"x" * 1000 if i.filename.endswith("a.mp4") else b"hello")
+
+
+def test_manifest_test_split_gets_own_subset():
+    rows = [{"Participant ID": "P9", "Video file": "1-BOOK.mp4", "Gloss": "BOOK"}]
+    items = ac.build_manifest({"test": rows}, ["book"], ("test",), "aslc_test")
+    assert [(it["subset"], it["aslc_split"]) for it in items] == [("aslc_test", "test")]

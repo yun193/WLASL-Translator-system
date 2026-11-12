@@ -32,6 +32,9 @@ SPOT_MODEL_DIR = (Path(os.environ["WLASL_SPOT_MODEL_DIR"]) if os.environ.get("WL
                   else _latest_background_model_dir() or MODEL_DIR)
 # 整段分類用兩個模型（MODEL_DIR＋SPOT_MODEL_DIR）平均；設 0 只用 MODEL_DIR
 ENSEMBLE = os.environ.get("WLASL_ENSEMBLE", "1") != "0"
+# 門檻跟著模型走：MODEL_DIR/serving.json 有 min_confidence、spot_threshold 就用它（詞彙量不同，信心分布也不同）
+_SERVING_PATH = MODEL_DIR / "serving.json" if MODEL_DIR else None
+SERVING = json.loads(_SERVING_PATH.read_text(encoding="utf-8")) if _SERVING_PATH and _SERVING_PATH.is_file() else {}
 # MediaPipe Holistic 模型檔，不存在時第一次啟動會自動下載
 MP_MODEL = ROOT_DIR / "data" / "models" / "holistic_landmarker.task"
 
@@ -52,7 +55,7 @@ MIN_SIGN_SECONDS = 0.4
 MAX_SIGN_SECONDS = 4.0
 # top-1 機率低於門檻就回報「不確定」而不是硬猜
 # 0.5：w2000 test 上涵蓋 76%、其中正確 91%；鏡頭模式的相位翻盤幾乎都落在門檻以下
-MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", "0.5"))
+MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", SERVING.get("min_confidence", 0.5)))
 
 # 連續比劃（對話）：同一段比超過 CONTINUOUS_AFTER 秒就改用滑動窗口偵測，
 # 每 SPOT_HOP 秒分類最近 SPOT_WINDOW 秒，連續 SPOT_MIN_HITS 個窗口同一個詞、信心 ≥ SPOT_THRESHOLD 才輸出
@@ -64,7 +67,8 @@ SPOT_HOP = 0.25
 SPOT_MIN_HITS = 1
 SPOT_THRESHOLD_SINGLE = 0.7
 # 雙模型平均：scripts/spotgate.py 在合成連續的偶數半，誤報降到單模型一半時的門檻
-SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", "0.78" if ENSEMBLE else SPOT_THRESHOLD_SINGLE))
+SPOT_THRESHOLD = float(os.environ.get("WLASL_SPOT_THRESHOLD", SERVING.get("spot_threshold", 0.78) if ENSEMBLE
+                                     else SPOT_THRESHOLD_SINGLE))
 
 # 即時紀錄檔（JSONL）
 LOG_DIR = Path(os.environ.get("WLASL_LOG_DIR") or ROOT_DIR / "logs")

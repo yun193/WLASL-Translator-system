@@ -1,7 +1,7 @@
 # Kaggle 2×T4 kernel：只是殼，邏輯在 wlasl.train / wlasl.export
 # 輸入：前處理分片 kernel（wlasl-prep-*）的產出，合併成一份資料夾
 # 產出：/kaggle/working/<設定名>/{best.pt, history.json, model.onnx, labels.json, reference.npz, metrics.json}
-#       /kaggle/working/testdata/{index.json, labels.json, keypoints/*.npy}：前 100 類 test，本機驗證用
+#       /kaggle/working/testdata/{index.json, labels.json, keypoints/*.npy}：前 EVAL_CLASSES 類 test，本機驗證用
 import glob
 import json
 import os
@@ -13,16 +13,16 @@ from pathlib import Path
 import torch
 
 # 重訓時只改這裡：每個設定佔一張 GPU 同時跑（傳給 wlasl.train 的超參數）
-# 2026-11-12：上線雙模型（w2000n＋w2000bg）兩個成員都加入 ASL Citizen train+val（WLASL2000 同名 1,159 詞、40 人），
-#   設定和原本完全相同，只多了資料；驗收看本機 ASL Citizen test（11 位沒看過的人）與 WLASL test
+# 2026-11-13：上線改成 2000 詞。設定同 a2000n／a2000bg（含 ASL Citizen train+val），
+#   但 EVAL_CLASSES＝2000：用 2000 類 val 挑最好的 epoch、匯出整個 2000 詞、testdata 也是 2000 類 test
 # 設定比 GPU 多時兩組共用一張卡
 CONFIGS: dict[str, list[str]] = {
-    "a2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise"],
-    "a2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3"],
+    "k2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise"],
+    "k2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3"],
 }
 # 掛載的前處理產出裡要合併哪些（aslc-prep-* 只限非商業研究，訓練出來的模型不公開、不商用）
 SOURCES = ("wlasl-prep-", "aslc-prep-")
-EVAL_CLASSES = 100
+EVAL_CLASSES = 2000
 
 whl = glob.glob("/kaggle/input/**/wlasl-*.whl", recursive=True)
 assert whl, "找不到 wlasl wheel，先跑 scripts/kaggle_push_code.ps1"
