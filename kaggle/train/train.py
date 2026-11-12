@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 
 # 重訓時只改這裡：每個設定佔一張 GPU 同時跑（傳給 wlasl.train 的超參數）
-# 2026-11-12：上線雙模型（w2000n＋w2000bg）兩個成員都加入 ASL Citizen train+val（WLASL2000 同名 1,159 詞、41 人），
+# 2026-11-12：上線雙模型（w2000n＋w2000bg）兩個成員都加入 ASL Citizen train+val（WLASL2000 同名 1,159 詞、40 人），
 #   設定和原本完全相同，只多了資料；驗收看本機 ASL Citizen test（11 位沒看過的人）與 WLASL test
 # 設定比 GPU 多時兩組共用一張卡
 CONFIGS: dict[str, list[str]] = {
