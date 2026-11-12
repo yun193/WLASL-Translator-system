@@ -276,7 +276,7 @@ def cmd_oov():
             for r in rows:
                 d = np.load(DATA / "kp" / f"{Path(r['Video file']).stem}.npz")
                 raw, fps = d["raw"], float(d["fps"])
-                conf += clf.predict(raw).prob >= th
+                conf += clf(raw).prob >= th
                 out = [s.prediction.gloss for s in sb.decode(clf, raw, fps, cfg)]
                 shown += bool(out)
                 words.update(out[:1])
