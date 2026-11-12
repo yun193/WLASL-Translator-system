@@ -34,8 +34,10 @@ for ($i = 0; $i -lt $Shards; $i++) {
     $meta.id = $id
     $meta.title = "$Prefix-$i"
     [IO.File]::WriteAllText((Join-Path $stage "kernel-metadata.json"), ($meta | ConvertTo-Json -Depth 3), $utf8)
-    kaggle kernels push -p $stage
-    if ($LASTEXITCODE -ne 0) { throw "推送 $id 失敗" }
+    # 超過同時 5 個 CPU session 時 push 只印錯誤、exit code 仍是 0
+    $msg = (kaggle kernels push -p $stage) -join " "
+    Write-Host $msg
+    if ($LASTEXITCODE -ne 0 -or $msg -match "error") { throw "推送 $id 失敗：$msg" }
 }
 
 $start = Get-Date

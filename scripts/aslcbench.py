@@ -30,6 +30,7 @@ DATA = ROOT / "data" / "aslcitizen"
 OUT = ROOT / "docs" / "asl-citizen"
 MODEL = ROOT / "models" / "20261018-w2000n"
 SPOT_MODEL = ROOT / "models" / "20261019-w2000bg"
+DATA_OUT = DATA  # per_video.json 的位置
 
 
 class HttpFile(io.RawIOBase):
@@ -205,7 +206,8 @@ def cmd_eval():
     res["wlasl_same_words"] = wlasl_same_words(clfs, {r["gold"] for r in per_video})
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "metrics.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
-    (DATA / "per_video.json").write_text(json.dumps(per_video, ensure_ascii=False), encoding="utf-8")
+    DATA_OUT.mkdir(parents=True, exist_ok=True)
+    (DATA_OUT / "per_video.json").write_text(json.dumps(per_video, ensure_ascii=False), encoding="utf-8")
     f = lambda a: f"{a['k']}/{a['n']}={a['rate']:.1%} [{a['ci95'][0]:.0%},{a['ci95'][1]:.0%}]"  # noqa: E731
     for name in clfs:
         w, b = res["whole"][name], res["wlasl_same_words"][name]
@@ -217,4 +219,16 @@ def cmd_eval():
 
 
 if __name__ == "__main__":
-    {"fetch": cmd_fetch, "eval": cmd_eval}[sys.argv[1]]()
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["fetch", "eval"])
+    ap.add_argument("--model", type=Path, default=MODEL, help="雙模型的單一成員（整段分類對照）")
+    ap.add_argument("--spot", type=Path, default=SPOT_MODEL, help="雙模型的背景類成員")
+    ap.add_argument("--out", type=Path, default=OUT, help="metrics.json 輸出資料夾；per_video.json 放 data/aslcitizen/<同名>/")
+    a = ap.parse_args()
+    MODEL, SPOT_MODEL = a.model.resolve(), a.spot.resolve()
+    if a.out.resolve() != OUT:  # 新模型的評估另放，不蓋掉現行模型的結果
+        OUT = a.out.resolve()
+        DATA_OUT = DATA / OUT.name
+    {"fetch": cmd_fetch, "eval": cmd_eval}[a.cmd]()
