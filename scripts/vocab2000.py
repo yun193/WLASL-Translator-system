@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import pickle
 import sys
 import zipfile
@@ -28,10 +29,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import aslcbench as ab  # noqa: E402
 
-MODEL = ROOT / "models" / "20261113-k2000n"
-SPOT_MODEL = ROOT / "models" / "20261113-k2000bg"
-OUT = ROOT / "docs" / "vocab2000"
-CACHE = ab.DATA / "k2000_collect.pkl"
+# 換模型比較：VOCAB_MODEL／VOCAB_SPOT_MODEL 指資料夾名，VOCAB_TAG 決定快取與輸出（預設是上線的 k2000）
+MODEL = ROOT / "models" / os.environ.get("VOCAB_MODEL", "20261113-k2000n")
+SPOT_MODEL = ROOT / "models" / os.environ.get("VOCAB_SPOT_MODEL", "20261113-k2000bg")
+TAG = os.environ.get("VOCAB_TAG", "")
+OUT = ROOT / "docs" / "vocab2000" / TAG if TAG else ROOT / "docs" / "vocab2000"
+CACHE = ab.DATA / f"{TAG or 'k2000'}_collect.pkl"
 # 窗口偵測門檻只往保守方向挑：單字測試會偏好低門檻，但連續比劃的誤報在 2000 詞下量不到（2026-11-13 決定）
 SPOT_THS = (0.78, 0.85, 0.9)
 TARGET = 0.90  # 顯示的詞要 ≥90% 正確
