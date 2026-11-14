@@ -13,7 +13,8 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
     "Content-Security-Policy": (
-        "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; "
+        # wasm-unsafe-eval：瀏覽器端 MediaPipe（只畫骨架）要編譯 WebAssembly，不開放一般 eval
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; "
         "media-src 'self' blob:; connect-src 'self'; "
         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
     ),

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import tempfile
+import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -40,7 +41,9 @@ async def guard(request: Request, call_next):
     response = await call_next(request)
     for name, value in security.SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/mp/"):  # 模型檔不會變，讓瀏覽器快取
+        response.headers["Cache-Control"] = "max-age=86400"
+    elif request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -58,6 +61,23 @@ def health():
                      "after": config.CONTINUOUS_AFTER, "window": config.SPOT_WINDOW, "hits": config.SPOT_MIN_HITS,
                      "threshold": config.SPOT_THRESHOLD} if config.SPOTTING else None,
     }
+
+
+# 瀏覽器端畫骨架用的輕量模型（只畫，不辨識）；只開放白名單裡的檔名
+_WEB_MODELS = {name: (config.ROOT_DIR / "data" / "models" / name,
+                      f"https://storage.googleapis.com/mediapipe-models/{kind}/{name.removesuffix('.task')}/float16/latest/{name}")
+               for name, kind in (("pose_landmarker_lite.task", "pose_landmarker"), ("hand_landmarker.task", "hand_landmarker"))}
+
+
+@app.get("/api/mp/{name}")
+async def mediapipe_model(name: str):
+    if name not in _WEB_MODELS:
+        return JSONResponse({"detail": "沒有這個模型"}, status_code=404)
+    path, url = _WEB_MODELS[name]
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(urllib.request.urlretrieve, url, path)
+    return FileResponse(path, media_type="application/octet-stream")
 
 
 @app.get("/api/demo/{gloss}")

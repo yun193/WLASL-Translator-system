@@ -38,3 +38,6 @@ logs/
 *.mkv
 *.webm
 docs/podcast-ep3/model_*.json
+
+# MediaPipe 網頁版 wasm（建置時從 node_modules 複製）
+frontend/public/mediapipe-wasm/

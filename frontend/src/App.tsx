@@ -69,7 +69,7 @@ function App() {
 
             <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid gap-6 lg:grid-cols-5">
                 <section className="lg:col-span-3 space-y-3">
-                    <CameraView videoRef={videoRef} frame={frame} mirrored={mode === 'camera'} live={live}
+                    <CameraView videoRef={videoRef} frame={frame} mirrored={mode === 'camera'} live={live} localTrack={mode === 'camera'}
                         notice={vidLive && vid.status === 'analyzing' ? '後端逐幀分析中…' : undefined} />
 
                     <div className="flex flex-wrap gap-2">
