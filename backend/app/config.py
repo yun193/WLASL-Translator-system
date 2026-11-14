@@ -59,7 +59,8 @@ MIN_CONFIDENCE = float(os.environ.get("WLASL_MIN_CONFIDENCE", SERVING.get("min_c
 
 # 連續比劃（對話）：同一段比超過 CONTINUOUS_AFTER 秒就改用滑動窗口偵測，
 # 每 SPOT_HOP 秒分類最近 SPOT_WINDOW 秒，連續 SPOT_MIN_HITS 個窗口同一個詞、信心 ≥ SPOT_THRESHOLD 才輸出
-SPOTTING = os.environ.get("WLASL_SPOTTING", "1") == "1"
+# 2026-11-14 用戶要求先專心做單字：預設關閉（只剩「手放下＝一個詞」），要開回來設 WLASL_SPOTTING=1
+SPOTTING = os.environ.get("WLASL_SPOTTING", "0") == "1"
 CONTINUOUS_AFTER = 3.5  # WLASL test 的單字段落（含 pre-roll 與段尾靜止）中位 2.0 秒、超過 3.5 秒的只有 3%
 # 在合成連續手語與 podcast 前半掃 window × hits × th，誤報 ≤ 5 次/分鐘時 w2000bg 召回最高的組合
 SPOT_WINDOW = 1.3
