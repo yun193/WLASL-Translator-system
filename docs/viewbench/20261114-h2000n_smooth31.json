@@ -1,0 +1,79 @@
+{
+ "model": "20261114-h2000n",
+ "spot_model": "20261114-h2000bg",
+ "n": 4000,
+ "results": {
+  "yaw+0_pitch+0_plain": {
+   "top1": 0.83775,
+   "top5": 0.95475
+  },
+  "yaw+0_pitch+0_canon": {
+   "top1": 0.7145,
+   "top5": 0.87125
+  },
+  "yaw+15_pitch+0_plain": {
+   "top1": 0.5825,
+   "top5": 0.79675
+  },
+  "yaw+15_pitch+0_canon": {
+   "top1": 0.45675,
+   "top5": 0.63
+  },
+  "yaw-15_pitch+0_plain": {
+   "top1": 0.55475,
+   "top5": 0.772
+  },
+  "yaw-15_pitch+0_canon": {
+   "top1": 0.339,
+   "top5": 0.50925
+  },
+  "yaw+30_pitch+0_plain": {
+   "top1": 0.2035,
+   "top5": 0.39625
+  },
+  "yaw+30_pitch+0_canon": {
+   "top1": 0.24575,
+   "top5": 0.427
+  },
+  "yaw-30_pitch+0_plain": {
+   "top1": 0.17725,
+   "top5": 0.34975
+  },
+  "yaw-30_pitch+0_canon": {
+   "top1": 0.17225,
+   "top5": 0.327
+  },
+  "yaw+45_pitch+0_plain": {
+   "top1": 0.043,
+   "top5": 0.1125
+  },
+  "yaw+45_pitch+0_canon": {
+   "top1": 0.13225,
+   "top5": 0.28625
+  },
+  "yaw-45_pitch+0_plain": {
+   "top1": 0.031,
+   "top5": 0.08
+  },
+  "yaw-45_pitch+0_canon": {
+   "top1": 0.098,
+   "top5": 0.22
+  },
+  "yaw+0_pitch+20_plain": {
+   "top1": 0.326,
+   "top5": 0.55625
+  },
+  "yaw+0_pitch+20_canon": {
+   "top1": 0.234,
+   "top5": 0.411
+  },
+  "yaw+0_pitch-20_plain": {
+   "top1": 0.27,
+   "top5": 0.49375
+  },
+  "yaw+0_pitch-20_canon": {
+   "top1": 0.19725,
+   "top5": 0.38375
+  }
+ }
+}

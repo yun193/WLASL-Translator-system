@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from wlasl.landmarks import LEFT_HAND, POSE_IDX, RIGHT_HAND, normalize
+import warnings
+
+from wlasl.landmarks import L_SHOULDER, LEFT_HAND, POSE_IDX, R_SHOULDER, RIGHT_HAND, normalize
 
 # 鏡像時要對調的姿勢點（pose 原始編號的左右成對）
 _POSE_PAIRS = [(2, 5), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)]
@@ -171,9 +173,59 @@ def with_context(seq: np.ndarray, span: tuple[int, int], pool, rng: np.random.Ge
     return splice(parts, rng, fps) if len(parts) > 1 else core
 
 
-def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5, subsample=True, noise=False) -> np.ndarray:
+_L_WRIST, _R_WRIST = POSE_IDX.index(15), POSE_IDX.index(16)
+
+
+def smooth_pose_z(seq: np.ndarray, k: int = 9) -> np.ndarray:
+    """姿勢點的 z 雜訊很大（手腕相鄰幀 z 跳動是 x 的 8 倍）→ 時間中位濾波；手指相對手腕的 z 不濾。"""
+    if k <= 1 or len(seq) == 0:
+        return seq
+    out = seq.copy()
+    z = seq[:, : LEFT_HAND.start, 2]
+    pad = np.pad(z, ((k // 2, k // 2), (0, 0)), mode="edge")
+    win = np.lib.stride_tricks.sliding_window_view(pad, k, axis=0)
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out[:, : LEFT_HAND.start, 2] = np.where(np.isnan(z), np.nan, np.nanmedian(win, axis=-1))
+    return out
+
+
+def absolute_z(seq: np.ndarray, k: int = 9) -> np.ndarray:
+    """手指 z 相對手腕 → 加上姿勢手腕的 z，整副骨架同一個深度基準。"""
+    seq = smooth_pose_z(seq, k)
+    out = seq.copy()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        shoulder = np.nanmedian(seq[:, [L_SHOULDER, R_SHOULDER], 2], axis=1)
+    for hand, wrist in ((LEFT_HAND, _L_WRIST), (RIGHT_HAND, _R_WRIST)):
+        wz = seq[:, wrist, 2]
+        wz = np.where(np.isnan(wz), shoulder, wz)
+        out[:, hand, 2] = seq[:, hand, 2] + wz[:, None]
+    return out
+
+
+def rotate_view(seq: np.ndarray, yaw: float, pitch: float, k: int = 9) -> np.ndarray:
+    """虛擬鏡頭：整副骨架繞肩膀中點轉 yaw（繞垂直軸）、pitch（繞水平軸）度，模型只看 x、y 等於換了鏡頭角度。"""
+    p = absolute_z(seq, k)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pivot = np.nanmedian(p[:, [L_SHOULDER, R_SHOULDER]].reshape(-1, 3), axis=0)
+    if np.isnan(pivot).any():
+        return seq
+    q = p - pivot
+    a, b = np.radians(yaw), np.radians(pitch)
+    x, y, z = q[..., 0], q[..., 1], q[..., 2]
+    x, z = np.cos(a) * x + np.sin(a) * z, -np.sin(a) * x + np.cos(a) * z
+    y, z = np.cos(b) * y - np.sin(b) * z, np.sin(b) * y + np.cos(b) * z
+    return (np.stack([x, y, z], axis=-1) + pivot).astype(np.float32)
+
+
+def augment(seq: np.ndarray, rng: np.random.Generator, p_mirror=0.5, subsample=True, noise=False,
+            p_view=0.0, yaw_max=45.0, pitch_max=20.0) -> np.ndarray:
     if rng.random() < p_mirror:
         seq = mirror(seq)
+    if p_view and rng.random() < p_view:  # 虛擬鏡頭角度（docs/viewbench：正面訓練的模型偏 15° 就掉約 30 點）
+        seq = rotate_view(seq, rng.uniform(-yaw_max, yaw_max), rng.uniform(-pitch_max, pitch_max))
     if subsample:
         seq = time_subsample(seq, rng)
     seq = time_crop(seq, rng, min_keep=0.9 if subsample else 0.8)

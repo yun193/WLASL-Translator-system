@@ -37,8 +37,8 @@ from wlasl.segmenter import segment_spans
 
 class TrainSet(Dataset):
     def __init__(self, raws, records, seed, mode, p_segmenter, subsample, noise=False,
-                 bg=0.0, bg_label=None, p_context=0.0, others=None, p_other=0.0):
-        self.raws, self.seed, self.mode = raws, seed, mode
+                 bg=0.0, bg_label=None, p_context=0.0, others=None, p_other=0.0, p_view=0.0):
+        self.raws, self.seed, self.mode, self.p_view = raws, seed, mode, p_view
         self.p_segmenter, self.subsample, self.noise = p_segmenter, subsample, noise
         self.labels = [r["label"] for r in records]
         self.fps = [r.get("fps") or 25.0 for r in records]
@@ -65,7 +65,7 @@ class TrainSet(Dataset):
             a, b = choose_span(len(seq), self.labeled[i], self.segmented[i] if self.segmented else [], self.fps[i],
                                rng, p_segmenter=self.p_segmenter)
             seq, label = seq[a:b], self.labels[i]
-        x = prepare(augment(seq, rng, subsample=self.subsample, noise=self.noise), mode=self.mode)
+        x = prepare(augment(seq, rng, subsample=self.subsample, noise=self.noise, p_view=self.p_view), mode=self.mode)
         return torch.from_numpy(x), label
 
 
@@ -138,6 +138,7 @@ def main(argv=None):
     ap.add_argument("--canon", action="store_true", help="模型內先把慣用手統一成右手（左手動得多就鏡像）")
     ap.add_argument("--hand-local", action="store_true", help="多給每隻手相對手腕、以手掌大小為單位的座標")
     ap.add_argument("--hand-rot", action="store_true", help="手部局部座標再轉正（每隻手自己的座標系），隱含 --hand-local")
+    ap.add_argument("--view-aug", type=float, default=0.0, help="虛擬鏡頭角度增強的機率（3D 轉 yaw ±45°、pitch ±20°）")
     ap.add_argument("--arch", choices=["flat", "parts"], default="flat", help="parts：仿 Uni-Sign 的分部位 GCN 編碼器")
     ap.add_argument("--p-context", type=float, default=0.0, help="正樣本前後接上別的詞的片段的機率")
     args = ap.parse_args(argv)
@@ -172,7 +173,8 @@ def main(argv=None):
     if args.bg:
         labels = [*labels, BG]
     train_set = TrainSet(load_raw(args.data, tr), tr, args.seed, args.resample, args.p_segmenter,
-                         not args.no_subsample, args.noise, args.bg, bg_label, args.p_context, others, args.bg_other)
+                         not args.no_subsample, args.noise, args.bg, bg_label, args.p_context, others, args.bg_other,
+                         args.view_aug)
     sampler = DistributedSampler(train_set, world, rank, shuffle=True, seed=args.seed) if ddp else None
     loader = DataLoader(train_set, args.bs, shuffle=sampler is None, sampler=sampler, num_workers=2,
                         drop_last=True, persistent_workers=False)
