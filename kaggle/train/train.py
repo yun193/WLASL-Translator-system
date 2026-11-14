@@ -17,10 +17,10 @@ import torch
 #   但 EVAL_CLASSES＝2000：用 2000 類 val 挑最好的 epoch、匯出整個 2000 詞、testdata 也是 2000 類 test
 # 設定比 GPU 多時兩組共用一張卡
 CONFIGS: dict[str, list[str]] = {
-    # 2026-11-14 上線版：實驗 1（慣用手統一＋手部局部座標）。實驗 1b 的 --hand-rot（每隻手轉正）換人反而 -1 點，未採用
-    "h2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--canon", "--hand-local"],
-    "h2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3",
-                "--canon", "--hand-local"],
+    # 2026-11-15 實驗 2：仿 Uni-Sign 分部位 GCN 編碼器（--arch parts），其他和上線的 h2000n／h2000bg 相同
+    "p2000n": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--canon", "--arch", "parts"],
+    "p2000bg": ["--classes", "2000", "--epochs", "100", "--warmup", "5", "--noise", "--bg", "0.3", "--p-context", "0.3",
+                "--canon", "--arch", "parts"],
 }
 # 掛載的前處理產出裡要合併哪些（aslc-prep-* 只限非商業研究，訓練出來的模型不公開、不商用）
 SOURCES = ("wlasl-prep-", "aslc-prep-")
