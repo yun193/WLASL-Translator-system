@@ -151,10 +151,13 @@ async def stream(ws: WebSocket):
         applog.event("ws_blocked", "warning", reason=reason, origin=ws.headers.get("origin"))
         await ws.close(code=1008)
         return
+    # 先 accept 再關：握手前就關，瀏覽器只會看到 1006，前端無法告訴使用者原因
     if classifier is None:
+        await ws.accept()
         await ws.close(code=1011, reason="no model")
         return
     if _sessions.locked():
+        await ws.accept()
         await ws.close(code=1013, reason="busy")
         return
     async with _sessions:
