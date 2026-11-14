@@ -45,7 +45,11 @@ function DemoPlayer({ gloss, onClose }: { gloss: string; onClose: () => void }) 
         fetch(`/api/demo/${encodeURIComponent(gloss)}`)
             .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error((await r.json()).detail))))
             .then((d) => setItems(d.items))
-            .catch((e) => { setState('error'); setError(String(e.message || e)); });
+            .catch((e) => {
+                setState('error');
+                // fetch 本身失敗（TypeError）＝連不到後端，不是 Kaggle 的問題
+                setError(e instanceof TypeError ? '連不到後端：請確認 start.ps1 的視窗還開著' : String(e.message || e));
+            });
     }, [gloss]);
 
     // 只播這個詞的片段（有些原始影片前後還有別的內容），播完從起點重播
