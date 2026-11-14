@@ -137,6 +137,7 @@ def main(argv=None):
     ap.add_argument("--bg-other", type=float, default=0.0, help="背景樣本中改用詞彙表外的詞（--classes 之後的類）的比例")
     ap.add_argument("--canon", action="store_true", help="模型內先把慣用手統一成右手（左手動得多就鏡像）")
     ap.add_argument("--hand-local", action="store_true", help="多給每隻手相對手腕、以手掌大小為單位的座標")
+    ap.add_argument("--hand-rot", action="store_true", help="手部局部座標再轉正（每隻手自己的座標系），隱含 --hand-local")
     ap.add_argument("--p-context", type=float, default=0.0, help="正樣本前後接上別的詞的片段的機率")
     args = ap.parse_args(argv)
 
@@ -185,7 +186,7 @@ def main(argv=None):
     bg_x = bg_val_set(make_pool(val_raw, va), val_others, args.bg_other, args.resample) if args.bg else None
 
     model = SignTransformer(len(labels), d=args.d, layers=args.layers, ff=args.d * 2,
-                            canon=args.canon, local=args.hand_local).to(device)
+                            canon=args.canon, local="rot" if args.hand_rot else args.hand_local).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     net = DDP(model, device_ids=[local] if device.type == "cuda" else None) if ddp else model
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
