@@ -7,10 +7,10 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import applog, config, security
+from . import applog, config, demo, security
 from .analyze import VideoError, analyze_video
 from .inference import Classifier, Ensemble
 from .stream import FrameError, SignSession
@@ -58,6 +58,27 @@ def health():
                      "after": config.CONTINUOUS_AFTER, "window": config.SPOT_WINDOW, "hits": config.SPOT_MIN_HITS,
                      "threshold": config.SPOT_THRESHOLD} if config.SPOTTING else None,
     }
+
+
+@app.get("/api/demo/{gloss}")
+def demo_list(gloss: str):
+    found = demo.items(gloss)
+    if found is None:
+        return JSONResponse({"detail": "沒有這個詞的示範影片"}, status_code=404)
+    return {"gloss": gloss, "items": found}
+
+
+@app.get("/api/demo/{gloss}/{index}")
+async def demo_video(gloss: str, index: int):
+    """示範影片本身：本機快取沒有就從 Kaggle 抓（第一次約數秒）。"""
+    try:
+        path = await demo.video_path(gloss, index)
+    except (KeyError, IndexError):
+        return JSONResponse({"detail": "沒有這支示範影片"}, status_code=404)
+    except demo.DemoError as exc:
+        applog.event("demo_failed", "warning", gloss=gloss, index=index, error=str(exc))
+        return JSONResponse({"detail": str(exc)}, status_code=503)
+    return FileResponse(path, media_type="video/mp4")
 
 
 @app.post("/api/analyze")

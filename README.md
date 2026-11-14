@@ -70,6 +70,7 @@ test 只有 100 支，top-1 的 95% 信賴區間約 ±10 個百分點；本機�
 - 「開啟鏡頭」：前鏡頭畫面鏡像顯示（像照鏡子），送給後端的影格不翻轉（訓練資料沒翻轉，左右手差異已由鏡像增強處理）。
 - 「分析影片檔」：影片上傳給後端 `POST /api/analyze`，cv2 以原生 fps 逐幀解碼分析（和 Kaggle 前處理同一路徑），同一支影片每次結果相同；播放時依時間戳同步骨架並標亮目前的詞。
   即時串流只能取到 10～15 fps，每次抽到的幀不同：10 fps 下 20% 影片會隨抽幀相位翻盤（15 fps 為 6%），所以影片檔不走串流。
+- 詞彙表點一個詞，下方播放它的示範影片（WLASL）。影片不存本機：後端點詞時才用本機的 kaggle CLI 從 Kaggle `wlasl-processed` 抓那一支，第一次約 5 秒；快取在 `data/demo_cache/`，超過 200MB（`WLASL_DEMO_CACHE_MB`）自動刪最久沒看的。索引 `backend/app/demo_index.json` 由 `scripts/build_demo_index.py` 產生，每詞最多 6 支，可按「換一支」看不同人比。
 - 手放下 0.5 秒自動切詞；「結束這個詞」不等手放下立刻送出；信心低於 0.3 的詞以灰字加 `?` 顯示。
 - 後端啟動時關閉 Windows EcoQoS：主控台變背景視窗後 CPU 會被節流到 1/6（MediaPipe 25 → 170 ms/幀）。
 - 開發模式：後端 `WLASL_DEV=1 uv run python -m app`，前端 `npm run dev`（Vite 5173 代理 `/api`、`/ws`）。
