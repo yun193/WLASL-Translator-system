@@ -1,0 +1,79 @@
+{
+ "model": "20261115-v2000n",
+ "spot_model": "20261115-v2000bg",
+ "n": 4000,
+ "results": {
+  "yaw+0_pitch+0_plain": {
+   "top1": 0.81125,
+   "top5": 0.95125
+  },
+  "yaw+0_pitch+0_canon": {
+   "top1": 0.8095,
+   "top5": 0.9515
+  },
+  "yaw+15_pitch+0_plain": {
+   "top1": 0.81,
+   "top5": 0.95125
+  },
+  "yaw+15_pitch+0_canon": {
+   "top1": 0.711,
+   "top5": 0.89375
+  },
+  "yaw-15_pitch+0_plain": {
+   "top1": 0.801,
+   "top5": 0.94925
+  },
+  "yaw-15_pitch+0_canon": {
+   "top1": 0.66625,
+   "top5": 0.86275
+  },
+  "yaw+30_pitch+0_plain": {
+   "top1": 0.796,
+   "top5": 0.94525
+  },
+  "yaw+30_pitch+0_canon": {
+   "top1": 0.62,
+   "top5": 0.8325
+  },
+  "yaw-30_pitch+0_plain": {
+   "top1": 0.78175,
+   "top5": 0.937
+  },
+  "yaw-30_pitch+0_canon": {
+   "top1": 0.574,
+   "top5": 0.791
+  },
+  "yaw+45_pitch+0_plain": {
+   "top1": 0.761,
+   "top5": 0.931
+  },
+  "yaw+45_pitch+0_canon": {
+   "top1": 0.57075,
+   "top5": 0.79275
+  },
+  "yaw-45_pitch+0_plain": {
+   "top1": 0.7405,
+   "top5": 0.918
+  },
+  "yaw-45_pitch+0_canon": {
+   "top1": 0.514,
+   "top5": 0.73825
+  },
+  "yaw+0_pitch+20_plain": {
+   "top1": 0.78875,
+   "top5": 0.94425
+  },
+  "yaw+0_pitch+20_canon": {
+   "top1": 0.72025,
+   "top5": 0.90075
+  },
+  "yaw+0_pitch-20_plain": {
+   "top1": 0.779,
+   "top5": 0.9405
+  },
+  "yaw+0_pitch-20_canon": {
+   "top1": 0.724,
+   "top5": 0.90575
+  }
+ }
+}
