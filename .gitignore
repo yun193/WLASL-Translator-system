@@ -41,3 +41,7 @@ docs/podcast-ep3/model_*.json
 
 # MediaPipe 網頁版 wasm（建置時從 node_modules 複製）
 frontend/public/mediapipe-wasm/
+
+# 第三方節目逐字稿（版權內容，只留本機；由 scripts/longvideo.py transcript 產生）
+docs/podcast-ep3/transcript.md
+docs/podcast-ep3/transcript.json

@@ -6,7 +6,7 @@
 
 | 檔案 | 內容 |
 | --- | --- |
-| [transcript.md](transcript.md) | 逐字稿與時間軸（YouTube 自動字幕，英文配音的語音辨識，5,328 字、302 行） |
+| `transcript.md`（不進 git） | 逐字稿與時間軸（YouTube 自動字幕，英文配音的語音辨識，5,328 字、302 行）；節目有版權，只留本機，用 `scripts/longvideo.py transcript` 重新產生 |
 | [model_w100.md](model_w100.md) | 100 詞模型輸出：切詞器版（和網頁一樣）＋ 1 秒滑動窗口版 |
 | [model_w2000.md](model_w2000.md) | 2000 詞模型輸出（同上） |
 | [comparison_data.md](comparison_data.md) | 對比數據（覆蓋率、切詞、召回、精確，全部附機率基準） |
