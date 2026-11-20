@@ -1,129 +1,189 @@
-# WLASL-Translator-system
+# WLASL Translator
 
-用前鏡頭比出手語，畫面即時顯示對應的英文詞（gloss），例如比出 "Hello" 就顯示 `HELLO`；連續比多個詞則串成 `HELLO ME NAME`。
+> 對著電腦鏡頭比美國手語（ASL），畫面即時顯示對應的英文詞（gloss）。
 
-學習目標：連續影像如何快速辨識（骨架關鍵點 + 輕量時序模型 + 即時切詞）。
+比出 "Hello" 就顯示 `HELLO`；連續比多個詞則串成 `HELLO ME NAME`。支援 **2,000 個單字**，全程在本機 CPU 上即時執行，不需上傳到雲端。
 
-資料集：[WLASL-processed（Kaggle）](https://www.kaggle.com/datasets/risangbaskoro/wlasl-processed)
-
-## 架構決策（2026-10-14 定案）
-
-| 項目 | 決定 | 理由 |
-| --- | --- | --- |
-| 辨識路線 | MediaPipe 骨架關鍵點 + 輕量 Transformer / GRU | 即時推論快，資料量小也比較穩 |
-| 詞彙量 | 先做 WLASL100；**2026-11-13 起上線 2000 詞**（`docs/vocab2000/report.md`）；2026-11-14 換成 h2000（慣用手統一＋手部局部座標，`docs/vocab2000/h2000/report.md`） | 加入 ASL Citizen 後，新使用者單字 top-1 從 WLASL2000 的四到五成提升到 81%；門檻依手語者對半調到「顯示的詞 ≥90% 正確」 |
-| 句子輸出 | 先輸出 gloss 串；LLM 改寫成通順英文留到之後 | WLASL 只有單字標註；ASL 語序和英文不同 |
-| 關鍵點擷取 | 後端 Python MediaPipe，瀏覽器只送影格 | 和 Kaggle 訓練用同一套程式，前處理保證一致 |
-| 分工（2026-10-14 補充） | **Kaggle**：前處理 → 訓練 → 匯出 ONNX；**本機**：只做訓練後驗證（離線測試集指標 + 即時鏡頭實測） | 本機只有 RTX 3050 Ti 4GB，不跑前處理和訓練；本機不裝 torch |
-| 訓練 | Kaggle：CPU 做前處理，2×T4 用 `torchrun` DDP 訓練，訓練結束直接匯出 ONNX | 匯出是訓練產出的一部分，留在有 torch 的環境 |
-| 驗證 | 本機用 `onnxruntime-gpu` 跑**實際要部署的 ONNX**：top-1 / top-5、混淆矩陣、每類準確率、推論延遲，以及和 Kaggle 端 PyTorch logits 的一致性比對 | 驗的就是上線那一份模型，不是訓練框架裡的另一份 |
-| Kaggle 操作 | 全部用 `kaggle` CLI 從本機驅動：`datasets version` 推程式碼、`kernels push` 跑 notebook、`kernels status` 查進度、`kernels output` 拉產出 | 不用手動開網頁，流程可重跑 |
-| 即時推論（2026-10-15 改） | **全部 CPU**：MediaPipe 與分類器都在 CPU；後端只裝 `onnxruntime`（CPU 版） | 實測分類器 batch 1：CPU 1.16 ms、CUDA 1.57 ms，模型太小 GPU 反而慢；瓶頸是 MediaPipe 約 95 ms/幀（佔 99%），Windows 上 MediaPipe 也沒有 GPU delegate |
-| 本機 GPU | 只在驗證時用（`ml` 的 `eval` extra：`onnxruntime-gpu==1.26.0`，CUDA EP 關 TF32） | 1.27 起 CUDA 13 套件沒有 Windows wheel；TF32 會讓 logits 差到 7e-3 |
-| 程式碼送上 Kaggle | `kaggle` CLI 把 `ml/` 推成 Kaggle Dataset，notebook 掛載後 `pip install` | repo 是 private，Kaggle 不能直接 clone，也不把 GitHub 憑證放到雲端 |
-| 前端風格 | 沿用 `side-project_VC/tools`：React 18 + Vite + Tailwind 3 + lucide-react | |
-| 後端 | 沿用 `tools`：FastAPI + uv，只綁 `127.0.0.1`，`start.ps1` 一鍵啟動 | |
-
-## 資料現況（2026-10-14 實測）
-
-Kaggle `wlasl-processed` 只有 11980 支影片，WLASL100 的 2038 支中只存在 **1013 支**（缺的剛好是 `missing.txt` 列的那些）：
-
-| split | 影片數 | 涵蓋類別 | 每類支數 |
-| --- | --- | --- | --- |
-| train | 748 | 100 | 4–12 |
-| val | 165 | 89 | 1–4 |
-| test | 100 | 72 | 1–3 |
-
-test 只有 100 支，top-1 的 95% 信賴區間約 ±10 個百分點；本機驗證報告須一併標註，不能只看單一數字。
-
-## 關鍵點擷取（2026-10-14 實測）
-
-- mediapipe 鎖定 `1.1.0`：舊版 `mp.solutions` 已移除，只能用 Tasks API。
-- 採用 `HolisticLandmarker`：本機 CPU 約 95 ms/幀；Pose + Hand 分開跑反而約 105–135 ms，而且分不出左右手。
-- 每幀 55 點 × (x, y, z)：上半身姿勢 13 點 + 左手 21 + 右手 21；x 乘上寬高比，缺點填 NaN。
-- `.npy` 存原始座標，正規化（肩膀中點為原點、肩寬為單位）在讀取時做。
-
-## 即時串流（2026-10-15 實測）
-
-`scripts/bench_mediapipe.py`，test 100 支，本機 CPU：
-
-| 取樣 | test top-1 | top-5 | 平均幀數 |
-| --- | --- | --- | --- |
-| 全幀 | 70% | 87% | 60 |
-| 15 fps | 70% | 89% | 32 |
-| 10 fps | 70% | 88% | 21 |
-| 7.5 fps | 70% | 87% | 16 |
-
-- 每幀擷取延遲（720p 影片）：原尺寸 113 ms、480p 74 ms、360p 80 ms → 前端送 **640×480 JPEG**。
-- 本機與 Kaggle 擷取同一支影片：80/100 支逐位元相同，其餘 20 支只差在門檻邊緣的手部偵測，準確率 70% vs 71%。
-- 協定：前端送 `float64 時間戳(ms) + JPEG`，後端回 `frame`（手部狀態、骨架點），切出詞時多回一則 `sign`；前端收到回覆才送下一幀（一來一回 = 背壓，不會堆積延遲）。
-- 安全：WebSocket 握手不經過 HTTP middleware，`/ws/stream` 在 accept 前另外檢查 Host 與 Origin（Origin 必填）；同時只允許一條串流。
-- 切詞 v1：手出現就開始、手消失 0.5 秒切詞、超過 4 秒強制切；連續比劃不放手時只能靠強制切，之後可改用手速低谷切詞。
-
-## 使用方式
-
-```powershell
-.\start.ps1              # 缺前端建置或原始碼有更新會先 npm build，再啟動 http://127.0.0.1:8766 並開瀏覽器
-.\start.ps1 -NoBrowser
+```
+前鏡頭 ──▶ MediaPipe 骨架關鍵點 ──▶ 自動切詞 ──▶ 輕量 Transformer ──▶ HELLO  ME  NAME
 ```
 
-- 「開啟鏡頭」：前鏡頭畫面鏡像顯示（像照鏡子），送給後端的影格不翻轉（訓練資料沒翻轉，左右手差異已由鏡像增強處理）。
-- 「分析影片檔」：影片上傳給後端 `POST /api/analyze`，cv2 以原生 fps 逐幀解碼分析（和 Kaggle 前處理同一路徑），同一支影片每次結果相同；播放時依時間戳同步骨架並標亮目前的詞。
-  即時串流只能取到 10～15 fps，每次抽到的幀不同：10 fps 下 20% 影片會隨抽幀相位翻盤（15 fps 為 6%），所以影片檔不走串流。
-- 詞彙表點一個詞，下方播放它的示範影片（WLASL）。影片不存本機：後端點詞時才用本機的 kaggle CLI 從 Kaggle `wlasl-processed` 抓那一支，第一次約 5 秒；快取在 `data/demo_cache/`，超過 200MB（`WLASL_DEMO_CACHE_MB`）自動刪最久沒看的。索引 `backend/app/demo_index.json` 由 `scripts/build_demo_index.py` 產生，每詞最多 6 支，可按「換一支」看不同人比。
-- 手放下 0.5 秒自動切詞；「結束這個詞」不等手放下立刻送出；信心低於 0.3 的詞以灰字加 `?` 顯示。
-- 後端啟動時關閉 Windows EcoQoS：主控台變背景視窗後 CPU 會被節流到 1/6（MediaPipe 25 → 170 ms/幀）。
-- 開發模式：後端 `WLASL_DEV=1 uv run python -m app`，前端 `npm run dev`（Vite 5173 代理 `/api`、`/ws`）。
+---
 
-端到端實測（2026-10-15，headless Chrome 假鏡頭餵 test 影片 birthday → candy → change 循環）：鏡頭與影片檔兩條路徑都切出 `birthday candy change`，約 10–13 fps、來回 30–90 ms。
+## 特色
 
-## 檔案結構
+- **即時辨識**：瀏覽器送影格、本機後端回字幕，約 10–15 fps，單次往返 30–90 ms。
+- **2,000 詞詞彙表**：在 WLASL2000＋ASL Citizen 上訓練，詞彙表可在畫面上瀏覽。
+- **看示範影片**：點詞彙表中的任一詞，就播放該詞的真人示範（可「換一支」看不同人比）。
+- **影片檔分析**：上傳影片逐幀分析，同一支影片每次結果相同，播放時同步標亮目前的詞。
+- **寧缺勿錯**：信心不足的詞不顯示或以灰字 `?` 標示；門檻依「顯示出來的詞 ≥ 90% 正確」調整。
+- **全 CPU 推論**：分類器單次 ≈ 1 ms；不需要獨立顯示卡。
+
+## 成效
+
+驗收資料是 **模型完全沒見過的手語者**（ASL Citizen test，5 位、6,426 支單字影片，家用鏡頭拍攝）：
+
+| 指標 | 數值 |
+| --- | --- |
+| 單字 top-1／top-5 | **82.9%**／95.8% |
+| 顯示出來的詞正確率 | **91.8%** |
+| 第一個詞就正確 | 73.1% |
+| 不輸出（信心不足） | 20.3% |
+
+常見錯誤多半是 ASL 本身就相近的手勢或同義詞，例如 brave↔health、hug↔love、murder↔kill。
+
+### 已知限制（請先看這裡）
+
+- **只做單字，不做連續句子**：在 39 分鐘的 ASL podcast 與 YouTube vlog 上測試，連續對話的切詞與辨識都還接近失效（精確率約 4%）。目前適合「一次比一個詞、比完放下手」的用法。
+- **鏡頭角度**：上線模型以正面訓練，偏 15° 以上準確率明顯下降；已有角度增強版（偏 45° 仍有 ~75%），尚未換上線。
+- **輸出是 gloss 串**：ASL 語序與英文不同，目前不改寫成通順英文。
+
+詳細數據與實驗紀錄見 [`docs/`](#實驗報告)。
+
+---
+
+## 系統架構
+
+```
+[Kaggle CPU]   WLASL / ASL Citizen 影片 ──MediaPipe──▶ 關鍵點 .npy
+[Kaggle GPU]   關鍵點 ──PyTorch 訓練──▶ model.onnx + labels.json
+                      （全部由本機 kaggle CLI 觸發與拉取）
+[本機驗證]     model.onnx + 測試關鍵點 ──onnxruntime──▶ top-k、混淆矩陣、延遲、換人準確率
+[本機服務]     前鏡頭影格 ─WebSocket─▶ MediaPipe ─▶ 切詞 ─▶ ONNX 分類 ─▶ 字幕
+```
+
+| 層 | 技術 |
+| --- | --- |
+| 關鍵點 | MediaPipe `HolisticLandmarker`（Tasks API）：每幀上半身 13 點＋雙手各 21 點 |
+| 模型 | 輕量時序 Transformer；肩膀中點正規化、慣用手統一（左撇子鏡像成右手）、手部局部座標 |
+| 切詞 | 手放下 0.5 秒切詞、超過 4 秒強制切；另有「不是詞」背景類模型過濾雜訊 |
+| 後端 | Python 3.12、FastAPI、uv、onnxruntime（CPU）；只綁 `127.0.0.1` |
+| 前端 | React 18、Vite、Tailwind CSS、lucide-react |
+| 訓練 | Kaggle Notebook（PyTorch）→ 匯出 ONNX；本機不需安裝 torch |
+
+**為什麼關鍵點在後端擷取？** 訓練與推論共用同一份 `ml/wlasl/landmarks.py`，前處理保證一致；本機與 Kaggle 擷取同一支影片，80% 逐位元相同。
+
+---
+
+## 快速開始
+
+### 需求
+
+- Windows 10/11（`start.ps1` 為 PowerShell；後端本身跨平台）
+- Python 3.12＋[uv](https://docs.astral.sh/uv/)
+- Node.js 18+
+- 網路攝影機
+- （選用）[Kaggle CLI](https://github.com/Kaggle/kaggle-api) 與帳號憑證：用於下載示範影片、重新訓練
+
+### 1. 取得模型
+
+模型權重**不在 repo 內**（見[授權](#資料與授權)）。可自行訓練，或將已有的模型放到：
+
+```
+models/<run 名稱>/model.onnx
+models/<run 名稱>/labels.json
+models/<run 名稱>/serving.json   # 選用：顯示門檻
+```
+
+從 Kaggle 訓練 notebook 拉取：
+
+```powershell
+.\scripts\kaggle_pull_model.ps1 -Run <run 名稱>
+```
+
+後端預設使用 `models/` 下最新的一版，也可用環境變數 `WLASL_MODEL_DIR` 指定。
+
+### 2. 啟動
+
+```powershell
+.\start.ps1
+```
+
+首次會自動 `npm install` 與建置前端，接著啟動 <http://127.0.0.1:8766> 並開啟瀏覽器。加上 `-NoBrowser` 則不開瀏覽器。
+
+### 3. 使用
+
+1. 按「開啟鏡頭」，上半身與雙手入鏡。
+2. 比一個詞，比完把手放下 —— 0.5 秒後字幕出現；也可按「結束這個詞」立刻送出。
+3. 想知道某個詞怎麼比？在詞彙表點它看示範影片。
+
+### 開發模式
+
+```powershell
+cd backend; $env:WLASL_DEV=1; uv run python -m app
+```
+
+```powershell
+cd frontend; npm run dev
+```
+
+Vite（5173）會代理 `/api` 與 `/ws` 到後端。
+
+---
+
+## 訓練與驗證
+
+所有訓練都在 Kaggle 上執行，由本機腳本驅動：
+
+| 步驟 | 腳本 |
+| --- | --- |
+| 把 `ml/` 程式碼推成 Kaggle Dataset | `scripts/kaggle_push_code.ps1` |
+| 分片前處理（影片 → 關鍵點） | `scripts/kaggle_preprocess_shards.ps1` |
+| 推送 notebook、輪詢狀態、拉 log | `scripts/kaggle_run.ps1` |
+| 下載 ONNX 與參考 logits | `scripts/kaggle_pull_model.ps1` |
+| 本機驗證（測試集指標、ONNX 與 PyTorch 一致性） | `scripts/validate.ps1` |
+| 後端端到端評估（含幀率、抽幀相位穩定度） | `scripts/eval_backend_model.ps1` |
+| 換人、角度、詞彙表外、長影片等基準測試 | `scripts/*bench.py` |
+
+單元測試：
+
+```powershell
+cd ml; uv run pytest
+```
+
+```powershell
+cd backend; uv run pytest
+```
+
+---
+
+## 專案結構
 
 ```
 WLASL-Translator-system/
-├─ ml/                         # 共用 Python 套件：Kaggle 與本機後端都 import
-│  ├─ pyproject.toml
-│  ├─ wlasl/
-│  │  ├─ landmarks.py          # MediaPipe 擷取 + 正規化（訓練與推論的唯一來源）
-│  │  ├─ dataset.py            # 讀關鍵點 .npy、切 WLASL100 / 300 split
-│  │  ├─ augment.py            # 鏡像（前鏡頭）、時間縮放、抖動
-│  │  ├─ model.py              # 輕量時序模型
-│  │  ├─ train.py              # DDP 進入點（torchrun）［Kaggle］
-│  │  ├─ export.py             # 匯出 ONNX + labels.json + 參考 logits［Kaggle］
-│  │  └─ evaluate.py           # ONNX 測試集指標、混淆矩陣、延遲、logits 比對［本機］
-│  └─ tests/
-├─ kaggle/                     # 只是殼，邏輯都在 ml/；每個資料夾一份 kernel-metadata.json 給 CLI push
-│  ├─ preprocess/              # CPU：影片 → 關鍵點 .npy（含 test split）
-│  └─ train/                   # 2×T4：torchrun 訓練 → 匯出 model.onnx + labels.json
-├─ backend/                    # FastAPI
-│  ├─ app/
-│  │  ├─ main.py  config.py  security.py  applog.py
-│  │  ├─ stream.py             # WebSocket 接收影格
-│  │  ├─ segmenter.py          # 切詞：滑動視窗 + 手部靜止偵測
-│  │  └─ inference.py          # onnxruntime（CPU）推論
-│  └─ tests/
-├─ frontend/                   # React + Vite + Tailwind
-│  └─ src/
-│     ├─ App.tsx               # 版面：影像 + 控制列 + 字幕 + 詞彙表
-│     ├─ components/           # CameraView（骨架疊圖）、Transcript（字幕 + top-5）、Vocabulary
-│     ├─ hooks/useSignStream.ts# 鏡頭/影片檔 → 一來一回 WebSocket → 字幕
-│     └─ lib/                  # protocol.ts（和 stream.py 對應）、skeleton.ts
-├─ scripts/
-│  ├─ kaggle_push_code.ps1     # ml/ → Kaggle Dataset（datasets version）
-│  ├─ kaggle_run.ps1           # kernels push → 輪詢 status → 完成後拉 log
-│  ├─ kaggle_pull_model.ps1    # kernels output：ONNX + labels.json + 參考 logits → models/<run>/
-│  └─ validate.ps1             # 本機驗證：下載 test 關鍵點 → wlasl.evaluate → 報告
-├─ models/  data/  logs/       # 不進 git
-├─ .claude/statusline.js       # 讀 Obsidian todo-list.md 算進度
-└─ start.ps1
+├─ ml/          # 共用 Python 套件 wlasl：關鍵點、資料集、增強、模型、訓練、匯出、評估、切詞
+├─ kaggle/      # Kaggle notebook 外殼（前處理、訓練、匯出、交叉驗證），邏輯都在 ml/
+├─ backend/     # FastAPI：WebSocket 串流、影片分析、ONNX 推論、示範影片快取
+├─ frontend/    # React 介面：鏡頭＋骨架疊圖、字幕、top-5、詞彙表
+├─ scripts/     # Kaggle 驅動、驗證與各種基準測試
+├─ docs/        # 實驗報告與數據
+└─ start.ps1    # 一鍵啟動
 ```
 
-## 資料流
+`models/`、`data/`、`logs/` 不進版控。
 
-```
-[Kaggle CPU]  WLASL 影片 ──MediaPipe──▶ 關鍵點 .npy
-[Kaggle 2×T4] 關鍵點 ──torchrun DDP──▶ 模型 ──▶ model.onnx + labels.json + 參考 logits
-                    （以上全由本機 kaggle CLI 觸發與拉取）
-[本機驗證]    model.onnx + test 關鍵點 ──onnxruntime-gpu──▶ top-k / 混淆矩陣 / 延遲 / logits 一致性
-[本機推論]    前鏡頭影格 ─WebSocket─▶ MediaPipe(CPU) ─▶ 切詞 ─▶ ONNX(CPU) ─▶ gloss 串 ─▶ 畫面
-```
+## 實驗報告
+
+| 主題 | 報告 |
+| --- | --- |
+| 2,000 詞版本與門檻調整 | [docs/vocab2000/report.md](docs/vocab2000/report.md) |
+| 慣用手統一＋手部局部座標（目前上線） | [docs/vocab2000/h2000/report.md](docs/vocab2000/h2000/report.md) |
+| 鏡頭角度增強 | [docs/vocab2000/v2000/report.md](docs/vocab2000/v2000/report.md)、[docs/viewbench/report.md](docs/viewbench/report.md) |
+| 分部位 GCN 編碼器（未採用） | [docs/vocab2000/p2000/report.md](docs/vocab2000/p2000/report.md) |
+| 加入 ASL Citizen 訓練 | [docs/asl-citizen/a2000/report.md](docs/asl-citizen/a2000/report.md) |
+| 依手語者交叉驗證 | [docs/signer-cv/report.md](docs/signer-cv/report.md) |
+| 詞彙表外亂認、窗口偵測門檻 | [docs/open-set/report.md](docs/open-set/report.md)、[docs/spot-gate/report.md](docs/spot-gate/report.md) |
+| YouTube 影片泛化 | [docs/yt-generalization/report.md](docs/yt-generalization/report.md) |
+| 39 分鐘 podcast 長對話測試 | [docs/podcast-ep3/report.md](docs/podcast-ep3/report.md) |
+| 文獻與下一步評估 | [docs/research/islr-sota.md](docs/research/islr-sota.md)、[docs/next-step-eval/report.md](docs/next-step-eval/report.md) |
+
+## 資料與授權
+
+- **WLASL**：[Li et al., WACV 2020](https://dxli94.github.io/WLASL/)；本專案使用 Kaggle 上的 [WLASL-processed](https://www.kaggle.com/datasets/risangbaskoro/wlasl-processed)。僅供學術研究。
+- **ASL Citizen**：[Desai et al., NeurIPS 2023](https://www.microsoft.com/en-us/research/project/asl-citizen/)，Microsoft Research License，**僅限非商業研究**。
+
+上線模型混有 ASL Citizen 訓練資料，因此**模型權重不公開、不得商用**；本 repo 只包含程式碼與實驗數據。
+
+## 致謝
+
+[MediaPipe](https://ai.google.dev/edge/mediapipe)、WLASL 與 ASL Citizen 的作者與參與錄製的手語者。
