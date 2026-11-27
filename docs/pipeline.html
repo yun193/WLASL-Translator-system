@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WLASL 訓練與推論流程</title>
+<style>
+:root {
+  --bg: #f7f7f4; --surface: #ffffff; --ink: #1d1d1b; --muted: #5f5f5a; --line: #dedcd4;
+  --train: #2f6db5; --train-soft: #e6eef8; --infer: #2c8a5a; --infer-soft: #e4f3ea;
+  --shared: #b5642f; --shared-soft: #f8ece3; --code-bg: #f0efe9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --surface: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3935;
+    --train: #7fb0ea; --train-soft: #1e2a3a; --infer: #7fd0a4; --infer-soft: #1b2e24;
+    --shared: #e9a575; --shared-soft: #33261c; --code-bg: #2a2a27;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --surface: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3935;
+  --train: #7fb0ea; --train-soft: #1e2a3a; --infer: #7fd0a4; --infer-soft: #1b2e24;
+  --shared: #e9a575; --shared-soft: #33261c; --code-bg: #2a2a27;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.65 "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 1.9rem; margin: 0 0 4px; }
+h2 { font-size: 1.35rem; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1.05rem; margin: 0 0 4px; }
+p { margin: 8px 0; }
+.lead { color: var(--muted); margin-bottom: 20px; }
+code { font-family: "Cascadia Code", Consolas, monospace; font-size: .88em; background: var(--code-bg);
+  padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .9rem; color: var(--muted); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.callout { background: var(--shared-soft); border-left: 4px solid var(--shared); padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+.flow { display: grid; gap: 0; }
+.step { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c);
+  border-radius: 8px; padding: 14px 16px; display: grid; grid-template-columns: 44px 1fr; gap: 4px 12px; }
+.step .n { grid-row: span 3; width: 36px; height: 36px; border-radius: 50%; background: var(--c-soft); color: var(--c);
+  display: grid; place-items: center; font-weight: 700; }
+.step .where { font-size: .82rem; color: var(--muted); }
+.step ul { margin: 4px 0 0; padding-left: 20px; }
+.arrow { text-align: center; color: var(--muted); line-height: 1; padding: 4px 0; font-size: 1.1rem; }
+.train { --c: var(--train); --c-soft: var(--train-soft); }
+.infer { --c: var(--infer); --c-soft: var(--infer-soft); }
+.shared { --c: var(--shared); --c-soft: var(--shared-soft); }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.box h3 { color: var(--c); }
+.arch { display: grid; gap: 6px; }
+.layer { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px;
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.layer b { font-weight: 600; }
+.layer span { color: var(--muted); font-size: .9rem; }
+.layer.hl { border-color: var(--train); background: var(--train-soft); }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; background: var(--surface); font-size: .93rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+tr.live td { background: var(--infer-soft); }
+.timeline { position: relative; height: 92px; margin: 16px 0 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.bar { position: absolute; height: 18px; border-radius: 4px; font-size: .75rem; color: #fff; padding: 0 6px; white-space: nowrap; line-height: 18px; overflow: hidden; }
+.tl-note { font-size: .85rem; color: var(--muted); }
+footer { margin-top: 48px; color: var(--muted); font-size: .85rem; }
+@media (max-width: 680px) {
+  .split { grid-template-columns: 1fr; }
+  h1 { font-size: 1.5rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>WLASL 訓練與推論流程</h1>
+  <p class="lead">從 Kaggle 上的影片到本機鏡頭字幕：資料怎麼來、模型怎麼練、上線時一幀影像怎麼變成一個英文詞。</p>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--train)"></i>訓練（Kaggle）</span>
+    <span><i class="dot" style="background:var(--infer)"></i>推論（本機 CPU）</span>
+    <span><i class="dot" style="background:var(--shared)"></i>兩邊共用的程式碼</span>
+  </div>
+
+  <div class="callout">
+    <b>核心設計：訓練和推論走同一套前處理。</b>
+    關鍵點擷取 <code>ml/wlasl/landmarks.py</code>、正規化＋重取樣 <code>dataset.prepare()</code>、切詞 <code>segmenter.py</code>
+    都只有一份，Kaggle 訓練、本機驗證、後端上線共用；NaN 補值與特徵計算寫在模型 forward 裡，跟著 ONNX 一起匯出。
+  </div>
+
+  <!-- ===================== 訓練 ===================== -->
+  <h2>一、訓練流程</h2>
+  <div class="flow">
+    <div class="step train">
+      <div class="n">1</div>
+      <h3>推送程式碼</h3>
+      <div class="where"><code>scripts/kaggle_push_code.ps1</code></div>
+      <div>把 <code>ml/</code> 打包成 wheel 上傳成 Kaggle Dataset，notebook 只是外殼，邏輯都在 <code>ml/</code>。</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step shared">
+      <div class="n">2</div>
+      <h3>前處理：影片 → 關鍵點（Kaggle CPU）</h3>
+      <div class="where"><code>ml/wlasl/preprocess.py</code>、<code>aslcitizen.py</code>、<code>scripts/kaggle_preprocess_shards.ps1</code></div>
+      <ul>
+        <li>MediaPipe <code>HolisticLandmarker</code> 每幀取 <b>55 點 × (x, y, z)</b>：上半身 13 點＋左右手各 21 點，偵測不到填 NaN。</li>
+        <li>擷取<b>整支影片</b>、存<b>未正規化</b>座標 → <code>keypoints/&lt;id&gt;.npy</code>；人工起訖 start/end 只記在 <code>index.json</code>。</li>
+        <li>資料：WLASL2000 ＋ ASL Citizen；量大時用 <code>--shard i --shards n</code> 拆給多個 kernel。</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step train">
+      <div class="n">3</div>
+      <h3>取樣與增強（每個樣本、每個 epoch 都不同）</h3>
+      <div class="where"><code>ml/wlasl/train.py · TrainSet</code>、<code>augment.py</code></div>
+      <ul>
+        <li><b>選起訖</b> <code>choose_span</code>：人工標註或上線切詞器的範圍，再抖動 ±0.2 秒（見第二節）。</li>
+        <li><b>增強</b>：鏡像、旋轉/縮放/錯切、時間裁切、抽幀（模擬低 fps）、關鍵點雜訊；選用虛擬鏡頭角度、背景類（不是詞）、前後接別的詞。</li>
+        <li><b>prepare</b>：肩膀中點為原點、肩寬為單位 → 線性重取樣成 <b>64 幀</b>。</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step train">
+      <div class="n">4</div>
+      <h3>訓練 SignTransformer（Kaggle GPU）</h3>
+      <div class="where"><code>ml/wlasl/model.py</code>、<code>kaggle/train/train.py</code>（雙設定 n／bg）</div>
+      <ul>
+        <li>AdamW（lr 1e-3、wd 0.05）＋ warmup＋cosine，label smoothing 0.1，梯度裁切 1.0。</li>
+        <li>每個 epoch 量 val top-1/top-5，另量 <code>live_top1</code>：用切詞器起訖＋每 3 幀取 1 幀，模擬上線。</li>
+        <li>以 val top-1 挑 <code>best.pt</code>。</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step train">
+      <div class="n">5</div>
+      <h3>匯出 ONNX</h3>
+      <div class="where"><code>ml/wlasl/export.py</code></div>
+      <div><code>model.onnx</code>＋<code>labels.json</code>＋<code>reference.npz</code>（參考 logits）＋<code>metrics.json</code>（記錄重取樣方式，推論端照用）。</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step infer">
+      <div class="n">6</div>
+      <h3>拉回本機驗證</h3>
+      <div class="where"><code>kaggle_pull_model.ps1</code> → <code>validate.ps1</code> → <code>eval_backend_model.ps1</code>、<code>scripts/*bench.py</code></div>
+      <div>ONNX 與 PyTorch 輸出一致性、測試集指標、換人／角度／詞彙表外／長影片基準，再決定是否上線並調 <code>serving.json</code> 門檻。</div>
+    </div>
+  </div>
+
+  <!-- ===================== 起訖 ===================== -->
+  <h2>二、起訖（start / end）怎麼決定</h2>
+  <p>擷取和起訖拆開：<b>關鍵點永遠存整支影片</b>，起訖只是 metadata，訓練時才決定這次要裁哪一段。</p>
+  <div class="timeline" aria-label="起訖示意">
+    <div class="bar" style="left:2%;width:96%;top:8px;background:var(--muted)">整支影片（存檔範圍）</div>
+    <div class="bar" style="left:28%;width:40%;top:36px;background:var(--train)">人工標註 start–end</div>
+    <div class="bar" style="left:20%;width:58%;top:64px;background:var(--infer)">切詞器範圍（含 pre-roll 0.3s ＋ 手放下 0.5s）</div>
+  </div>
+  <p class="tl-note">兩種範圍各有 50% 機率被選中，兩端再各抖動 ±0.2 秒，最短 4 幀。</p>
+  <div class="split">
+    <div class="box train">
+      <h3>來源</h3>
+      <ul>
+        <li>WLASL：nslt 人工標註 <code>action = [label, start, end]</code>，1 起算、含端點，<code>end=-1</code> 到結尾。</li>
+        <li>ASL Citizen：一律 <code>1 / -1</code>（整支就是一個詞）。</li>
+        <li><code>labeled_span()</code> 轉成半開區間 <code>[start-1, min(end, n))</code>。</li>
+      </ul>
+    </div>
+    <div class="box infer">
+      <h3>為什麼這樣設計</h3>
+      <ul>
+        <li>上線時沒有人工標註，起訖由切詞器決定，常多包進舉手前與放下的動作。</li>
+        <li>訓練時混入「切詞器版」起訖，模型就看過上線的真實輸入。</li>
+        <li>存整支影片 → 能取標註外的幀，改起訖策略不必重跑 MediaPipe。</li>
+        <li>最後都重取樣成 64 幀，長短差異只剩速度差異。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===================== 模型 ===================== -->
+  <h2>三、模型架構：SignTransformer（上線 h2000 配方）</h2>
+  <p>自寫的純 Encoder 時序 Transformer，參數約 0.8M（依架構推算），CPU 單次推論約 1 ms。上線配方：<code>--canon --hand-local</code>、<code>arch="flat"</code>。</p>
+  <div class="arch">
+    <div class="layer"><b>輸入</b><span>(B, 64 幀, 55 點, 3)，缺點為 NaN</span></div>
+    <div class="layer hl"><b>canonical_hand</b><span>左手動得多就整段鏡像，慣用手統一成右手</span></div>
+    <div class="layer hl"><b>build_features（每幀 307 維）</b><span>xy 110 ＋ 速度 110 ＋ 出現旗標 3 ＋ 手部局部座標 84</span></div>
+    <div class="layer"><b>Linear 307→128 · LayerNorm · GELU · Dropout</b><span>＋ 可學習位置編碼 (64, 128)</span></div>
+    <div class="layer"><b>TransformerEncoder × 4</b><span>Pre-LN，d=128，4 heads，FFN 256，GELU，dropout 0.2</span></div>
+    <div class="layer"><b>時間平均池化 · LayerNorm · Linear</b><span>→ 2000 類（bg 版另加 1 個背景類 <code>_bg</code>）</span></div>
+  </div>
+  <p class="tl-note">只用 x、y（MediaPipe 的 z 雜訊大）；手部局部座標＝相對手腕、以「手腕→中指根」長度為單位，讓手形不被手臂位置淹沒。</p>
+
+  <h3 style="margin-top:20px">版本演進（同一個類別，用旗標切換）</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>版本</th><th>差異</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td>w2000 / a2000</td><td>基本 flat；a2000 起加入 ASL Citizen</td><td>基準</td></tr>
+      <tr class="live"><td><b>h2000</b></td><td>＋慣用手統一 ＋手部局部座標</td><td><b>目前上線</b>（h2000n ＋ h2000bg）</td></tr>
+      <tr><td>r2000</td><td>手部局部座標再轉正 <code>local="rot"</code></td><td>未採用</td></tr>
+      <tr><td>p2000</td><td>仿 Uni-Sign：左手／右手／身體各一個 GCN＋時間卷積</td><td>換人 top-1 75.1%，不如 h2000</td></tr>
+      <tr><td>v2000</td><td>h2000 ＋虛擬鏡頭角度增強 0.5</td><td>偏 45° 仍約 76%，但正面換人 −2.4 點，尚未上線</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ===================== 推論 ===================== -->
+  <h2>四、推論流程（本機後端）</h2>
+  <div class="flow">
+    <div class="step infer">
+      <div class="n">1</div>
+      <h3>前端送影格</h3>
+      <div class="where"><code>frontend/</code> → WebSocket <code>/ws</code>；或上傳影片檔 <code>backend/app/analyze.py</code></div>
+      <div>每則訊息 = 8 bytes 時間戳（ms）＋ JPEG。後端回完一幀前端才送下一幀，自然背壓，約 10–15 fps。影片檔則以原生 fps 逐幀處理，結果可重現。</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step shared">
+      <div class="n">2</div>
+      <h3>MediaPipe 擷取關鍵點</h3>
+      <div class="where"><code>backend/app/stream.py · SignSession.process</code> → <code>LandmarkExtractor</code></div>
+      <div>與訓練同一支函式，輸出 (55, 3)；同時回傳骨架點給前端畫疊圖。</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step shared">
+      <div class="n">3</div>
+      <h3>切詞 Segmenter</h3>
+      <div class="where"><code>ml/wlasl/segmenter.py</code>、<code>spotter.py · SignDecoder</code></div>
+      <ul>
+        <li>手出現 → 開始，往前補 0.3 秒；手消失超過 <b>0.5 秒</b> → 切出一個詞；比超過 <b>4 秒</b>強制切；短於 0.4 秒當雜訊。</li>
+        <li>按「結束這個詞」＝ flush，立刻切。</li>
+        <li>連續比劃的滑動窗口偵測（Spotter）預設<b>關閉</b>，設 <code>WLASL_SPOTTING=1</code> 才開。</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step infer">
+      <div class="n">4</div>
+      <h3>ONNX 分類（雙模型平均）</h3>
+      <div class="where"><code>backend/app/inference.py · Classifier / Ensemble</code></div>
+      <div><code>prepare(raw)</code> → onnxruntime（CPU、單執行緒）→ softmax。h2000n 與 h2000bg 的詞機率取平均，取 top-5。</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step infer">
+      <div class="n">5</div>
+      <h3>寧缺勿錯，輸出字幕</h3>
+      <div class="where"><code>stream.py · sign_event</code>、<code>models/&lt;run&gt;/serving.json</code></div>
+      <div>top-1 機率 ≥ <b>0.41</b> 且不是背景類才標記為 confident；否則灰字 <code>?</code> 或不顯示。門檻依「顯示出來的詞 ≥ 90% 正確」調整。</div>
+    </div>
+  </div>
+
+  <h2>五、成效（未見過的手語者，ASL Citizen test）</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>指標</th><th>數值</th></tr></thead>
+    <tbody>
+      <tr><td>單字 top-1 ／ top-5</td><td>82.9% ／ 95.8%</td></tr>
+      <tr><td>顯示出來的詞正確率</td><td>91.8%</td></tr>
+      <tr><td>不輸出（信心不足）</td><td>20.3%</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tl-note">限制：只適合「一次比一個詞、比完放下手」；連續對話的切詞與辨識仍接近失效；偏 15° 以上準確率明顯下降。</p>
+
+  <footer>依 2026-11-27 的程式碼整理；上線模型以後端實際載入結果為準（models/ 最新修改時間＋<code>WLASL_MODEL_DIR</code>）。</footer>
+</main>
+</body>
+</html>
